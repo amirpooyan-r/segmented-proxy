@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 import socket
+import itertools
 
 from segmentedproxy.config import Settings
 from segmentedproxy.http import parse_http_request, send_http_error
@@ -44,6 +45,8 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
+    conn_ids = itertools.count(1)
+
     logging.info("Starting SegmentedProxy on %s:%s", settings.listen_host, settings.listen_port)
 
     def handle_client(client_sock: socket.socket, client_addr) -> None:
@@ -59,7 +62,8 @@ def main() -> None:
             send_http_error(client_sock, 400, str(e))
             return
 
-        logging.info("Request %s %s from %s", req.method, req.target, client_addr)
+        cid = next(conn_ids)
+        logging.info("[C%05d] %s %s from %s", cid, req.method, req.target, client_addr)
 
         if req.method.upper() == "CONNECT":
             handle_connect_tunnel(client_sock, req.target, settings)
@@ -72,7 +76,13 @@ def main() -> None:
         handler=handle_client,
         max_connections=settings.max_connections,
     )
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        logging.info("Keyboard interrupt received, shutting down...")
+    finally:
+        server.shutdown()
+        logging.info("Shutdown complete")
 
 
 if __name__ == "__main__":
