@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import logging
 import socket
-import itertools
 
 from segmentedproxy.config import Settings
-from segmentedproxy.http import parse_http_request, send_http_error
-from segmentedproxy.net import recv_until
 from segmentedproxy.handlers import handle_connect_tunnel, handle_http_forward
+from segmentedproxy.http import (
+    parse_http_request,
+    send_http_error,
+    split_headers_and_body,
+)
+from segmentedproxy.net import recv_until
 from segmentedproxy.server import ThreadedTCPServer
 
 
@@ -45,9 +49,9 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
-    conn_ids = itertools.count(1)
-
     logging.info("Starting SegmentedProxy on %s:%s", settings.listen_host, settings.listen_port)
+
+    conn_ids = itertools.count(1)
 
     def handle_client(client_sock: socket.socket, client_addr) -> None:
         client_sock.settimeout(settings.idle_timeout)
@@ -56,8 +60,10 @@ def main() -> None:
         if not raw:
             return
 
+        header_bytes, body_initial = split_headers_and_body(raw)
+
         try:
-            req = parse_http_request(raw)
+            req = parse_http_request(header_bytes)
         except ValueError as e:
             send_http_error(client_sock, 400, str(e))
             return
@@ -65,10 +71,35 @@ def main() -> None:
         cid = next(conn_ids)
         logging.info("[C%05d] %s %s from %s", cid, req.method, req.target, client_addr)
 
+        # Read request body if present (Content-Length)
+        body = body_initial
+        cl = req.headers.get("content-length")
+        te = req.headers.get("transfer-encoding")
+
+        if te and te.lower() != "identity":
+            # We'll add chunked support later; for now be correct and explicit.
+            send_http_error(client_sock, 501, "Transfer-Encoding not supported yet")
+            return
+
+        if cl:
+            try:
+                total = int(cl)
+            except ValueError:
+                send_http_error(client_sock, 400, "Invalid Content-Length")
+                return
+
+            remaining = total - len(body)
+            while remaining > 0:
+                chunk = client_sock.recv(min(4096, remaining))
+                if not chunk:
+                    break
+                body += chunk
+                remaining -= len(chunk)
+
         if req.method.upper() == "CONNECT":
             handle_connect_tunnel(client_sock, req.target, settings)
         else:
-            handle_http_forward(client_sock, req, settings)
+            handle_http_forward(client_sock, req, body, settings)
 
     server = ThreadedTCPServer(
         listen_host=settings.listen_host,
@@ -76,6 +107,7 @@ def main() -> None:
         handler=handle_client,
         max_connections=settings.max_connections,
     )
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:

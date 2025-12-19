@@ -73,3 +73,12 @@ def split_absolute_http_url(target: str) -> Tuple[str, int, str]:
         path += "?" + u.query
 
     return host, port, path
+
+def split_headers_and_body(raw: bytes) -> tuple[bytes, bytes]:
+    """
+    Split raw request into (header_bytes_including_crlfcrlf, initial_body_bytes).
+    """
+    head, sep, tail = raw.partition(b"\r\n\r\n")
+    if not sep:
+        return raw, b""
+    return head + sep, tail

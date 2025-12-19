@@ -12,8 +12,10 @@ from segmentedproxy.tunnel import open_upstream, parse_connect_target, relay_bid
 def handle_http_forward(
     client_sock: socket.socket,
     req: HttpRequest,
+    body: bytes,
     settings: Settings,
 ) -> None:
+
     try:
         host, port, path = split_absolute_http_url(req.target)
     except ValueError as e:
@@ -22,6 +24,28 @@ def handle_http_forward(
 
     headers: Dict[str, str] = dict(req.headers)
     headers.pop("proxy-connection", None)
+
+    # Remove hop-by-hop headers (RFC 7230)
+    hop_by_hop = {
+        "connection",
+        "proxy-connection",
+        "keep-alive",
+        "transfer-encoding",
+        "te",
+        "trailer",
+        "upgrade",
+        "proxy-authenticate",
+        "proxy-authorization",
+    }
+    for h in hop_by_hop:
+        headers.pop(h, None)
+
+    # If client sent "Connection: x,y", those named headers are hop-by-hop too
+    conn_hdr = req.headers.get("connection")
+    if conn_hdr:
+        for token in conn_hdr.split(","):
+            headers.pop(token.strip().lower(), None)
+
 
     headers["host"] = host if port == 80 else f"{host}:{port}"
     headers["connection"] = "close"
@@ -36,6 +60,8 @@ def handle_http_forward(
         with socket.create_connection((host, port), timeout=settings.connect_timeout) as upstream:
             upstream.settimeout(settings.idle_timeout)
             upstream.sendall(forward)
+            if body:
+                upstream.sendall(body)
 
             while True:
                 data = upstream.recv(4096)
