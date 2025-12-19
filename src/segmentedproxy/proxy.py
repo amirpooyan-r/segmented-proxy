@@ -4,7 +4,74 @@ import logging
 import socket
 import threading
 from contextlib import closing
+from typing import Dict, Tuple
+from urllib.parse import urlsplit
 
+
+# -------------------------
+# Helpers (module-level)
+# -------------------------
+
+def recv_until(sock: socket.socket, marker: bytes, max_size: int = 65536) -> bytes:
+    """
+    Receive data until `marker` is found or connection closes.
+    Used to read HTTP headers until CRLFCRLF.
+    """
+    data = b""
+    while marker not in data:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+        if len(data) > max_size:
+            raise ValueError("Request headers too large")
+    return data
+
+
+def parse_http_request(raw: bytes) -> Tuple[str, str, str, Dict[str, str]]:
+    """
+    Parse HTTP request line + headers.
+    Returns (method, target, version, headers_dict_lowercase_keys).
+    """
+    header_part, _, _ = raw.partition(b"\r\n\r\n")
+    lines = header_part.split(b"\r\n")
+    if not lines or len(lines[0]) == 0:
+        raise ValueError("Empty request")
+
+    request_line = lines[0].decode("iso-8859-1")
+    parts = request_line.split(" ", 2)
+    if len(parts) != 3:
+        raise ValueError(f"Invalid request line: {request_line!r}")
+
+    method, target, version = parts
+
+    headers: Dict[str, str] = {}
+    for line in lines[1:]:
+        if not line:
+            continue
+        if b":" not in line:
+            continue
+        k, v = line.split(b":", 1)
+        headers[k.decode("iso-8859-1").strip().lower()] = v.decode("iso-8859-1").strip()
+
+    return method, target, version, headers
+
+
+def send_http_error(client_sock: socket.socket, status: int, message: str) -> None:
+    body = (message + "\n").encode("utf-8")
+    resp = (
+        f"HTTP/1.1 {status} {message}\r\n"
+        f"Content-Type: text/plain; charset=utf-8\r\n"
+        f"Content-Length: {len(body)}\r\n"
+        f"Connection: close\r\n"
+        f"\r\n"
+    ).encode("utf-8") + body
+    client_sock.sendall(resp)
+
+
+# -------------------------
+# Proxy Server
+# -------------------------
 
 class ProxyServer:
     def __init__(
@@ -20,7 +87,6 @@ class ProxyServer:
         self.connect_timeout = connect_timeout
         self.idle_timeout = idle_timeout
         self.max_connections = max_connections
-
         self._sem = threading.BoundedSemaphore(max_connections)
 
     def serve_forever(self) -> None:
@@ -33,10 +99,13 @@ class ProxyServer:
 
             while True:
                 client_sock, client_addr = s.accept()
+
                 if not self._sem.acquire(blocking=False):
                     logging.warning("Too many connections; rejecting %s", client_addr)
-                    client_sock.close()
-                    continue
+                    try:
+                        client_sock.close()
+                    finally:
+                        continue
 
                 t = threading.Thread(
                     target=self._handle_client_wrapper,
@@ -58,5 +127,82 @@ class ProxyServer:
             self._sem.release()
 
     def handle_client(self, client_sock: socket.socket, client_addr) -> None:
-        logging.info("Client connected: %s", client_addr)
-        # TODO: implement HTTP and CONNECT handling next.
+        client_sock.settimeout(self.idle_timeout)
+
+        raw = recv_until(client_sock, b"\r\n\r\n")
+        if not raw:
+            return
+
+        method, target, version, headers = parse_http_request(raw)
+        logging.info("Request %s %s from %s", method, target, client_addr)
+
+        if method.upper() == "CONNECT":
+            # We'll implement CONNECT tunneling next step.
+            send_http_error(client_sock, 501, "CONNECT not implemented yet")
+            return
+
+        self._handle_http(client_sock, method, target, version, headers)
+
+    def _handle_http(
+        self,
+        client_sock: socket.socket,
+        method: str,
+        target: str,
+        version: str,
+        headers: Dict[str, str],
+    ) -> None:
+        """
+        Basic forward proxy for HTTP (absolute-form).
+        Example: GET http://example.com/path HTTP/1.1
+        """
+        # Many clients use absolute-form when talking to an HTTP proxy.
+        # We support only http:// for now (not https:// here; HTTPS uses CONNECT).
+        if not target.startswith("http://"):
+            send_http_error(client_sock, 400, "Only http:// absolute-form is supported for HTTP requests")
+            return
+
+        u = urlsplit(target)
+        host = u.hostname
+        port = u.port or 80
+        path = u.path or "/"
+        if u.query:
+            path = f"{path}?{u.query}"
+
+        if not host:
+            send_http_error(client_sock, 400, "Invalid URL")
+            return
+
+        logging.debug("Forwarding HTTP to %s:%d path=%s", host, port, path)
+
+        # Rewrite request to origin-form and forward to upstream.
+        # Clean proxy-only headers
+        headers.pop("proxy-connection", None)
+
+        # Ensure Host header is present/correct
+        headers["host"] = host if port == 80 else f"{host}:{port}"
+
+        # Keep it simple for MVP
+        headers["connection"] = "close"
+
+        request_line = f"{method} {path} {version}\r\n"
+        header_blob = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
+        forward = (request_line + header_blob + "\r\n").encode("iso-8859-1")
+
+        try:
+            with socket.create_connection((host, port), timeout=self.connect_timeout) as upstream:
+                upstream.settimeout(self.idle_timeout)
+                upstream.sendall(forward)
+
+                # Relay response back to client
+                while True:
+                    data = upstream.recv(4096)
+                    if not data:
+                        break
+                    client_sock.sendall(data)
+
+        except socket.gaierror:
+            send_http_error(client_sock, 502, "DNS resolution failed")
+        except TimeoutError:
+            send_http_error(client_sock, 504, "Upstream timeout")
+        except OSError:
+            send_http_error(client_sock, 502, "Upstream connection failed")
