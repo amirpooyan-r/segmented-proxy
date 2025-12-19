@@ -3,19 +3,21 @@ from __future__ import annotations
 import logging
 import socket
 import threading
+import select
+import time
 from contextlib import closing
 from typing import Dict, Tuple
 from urllib.parse import urlsplit
 
 
-# -------------------------
+# =========================
 # Helpers (module-level)
-# -------------------------
+# =========================
 
 def recv_until(sock: socket.socket, marker: bytes, max_size: int = 65536) -> bytes:
     """
-    Receive data until `marker` is found or connection closes.
-    Used to read HTTP headers until CRLFCRLF.
+    Receive data until marker is found or connection closes.
+    Used to read HTTP headers (CRLFCRLF).
     """
     data = b""
     while marker not in data:
@@ -30,26 +32,24 @@ def recv_until(sock: socket.socket, marker: bytes, max_size: int = 65536) -> byt
 
 def parse_http_request(raw: bytes) -> Tuple[str, str, str, Dict[str, str]]:
     """
-    Parse HTTP request line + headers.
-    Returns (method, target, version, headers_dict_lowercase_keys).
+    Parse HTTP request line and headers.
+    Returns (method, target, version, headers)
     """
     header_part, _, _ = raw.partition(b"\r\n\r\n")
     lines = header_part.split(b"\r\n")
-    if not lines or len(lines[0]) == 0:
+    if not lines:
         raise ValueError("Empty request")
 
     request_line = lines[0].decode("iso-8859-1")
     parts = request_line.split(" ", 2)
     if len(parts) != 3:
-        raise ValueError(f"Invalid request line: {request_line!r}")
+        raise ValueError(f"Invalid request line: {request_line}")
 
     method, target, version = parts
 
     headers: Dict[str, str] = {}
     for line in lines[1:]:
-        if not line:
-            continue
-        if b":" not in line:
+        if not line or b":" not in line:
             continue
         k, v = line.split(b":", 1)
         headers[k.decode("iso-8859-1").strip().lower()] = v.decode("iso-8859-1").strip()
@@ -59,19 +59,19 @@ def parse_http_request(raw: bytes) -> Tuple[str, str, str, Dict[str, str]]:
 
 def send_http_error(client_sock: socket.socket, status: int, message: str) -> None:
     body = (message + "\n").encode("utf-8")
-    resp = (
+    response = (
         f"HTTP/1.1 {status} {message}\r\n"
         f"Content-Type: text/plain; charset=utf-8\r\n"
         f"Content-Length: {len(body)}\r\n"
         f"Connection: close\r\n"
         f"\r\n"
     ).encode("utf-8") + body
-    client_sock.sendall(resp)
+    client_sock.sendall(response)
 
 
-# -------------------------
+# =========================
 # Proxy Server
-# -------------------------
+# =========================
 
 class ProxyServer:
     def __init__(
@@ -89,6 +89,10 @@ class ProxyServer:
         self.max_connections = max_connections
         self._sem = threading.BoundedSemaphore(max_connections)
 
+    # -------------------------
+    # Main accept loop
+    # -------------------------
+
     def serve_forever(self) -> None:
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -102,10 +106,8 @@ class ProxyServer:
 
                 if not self._sem.acquire(blocking=False):
                     logging.warning("Too many connections; rejecting %s", client_addr)
-                    try:
-                        client_sock.close()
-                    finally:
-                        continue
+                    client_sock.close()
+                    continue
 
                 t = threading.Thread(
                     target=self._handle_client_wrapper,
@@ -126,6 +128,10 @@ class ProxyServer:
                 pass
             self._sem.release()
 
+    # -------------------------
+    # Client handling
+    # -------------------------
+
     def handle_client(self, client_sock: socket.socket, client_addr) -> None:
         client_sock.settimeout(self.idle_timeout)
 
@@ -137,11 +143,14 @@ class ProxyServer:
         logging.info("Request %s %s from %s", method, target, client_addr)
 
         if method.upper() == "CONNECT":
-            # We'll implement CONNECT tunneling next step.
-            send_http_error(client_sock, 501, "CONNECT not implemented yet")
+            self._handle_connect(client_sock, target)
             return
 
         self._handle_http(client_sock, method, target, version, headers)
+
+    # -------------------------
+    # HTTP proxying
+    # -------------------------
 
     def _handle_http(
         self,
@@ -151,14 +160,8 @@ class ProxyServer:
         version: str,
         headers: Dict[str, str],
     ) -> None:
-        """
-        Basic forward proxy for HTTP (absolute-form).
-        Example: GET http://example.com/path HTTP/1.1
-        """
-        # Many clients use absolute-form when talking to an HTTP proxy.
-        # We support only http:// for now (not https:// here; HTTPS uses CONNECT).
         if not target.startswith("http://"):
-            send_http_error(client_sock, 400, "Only http:// absolute-form is supported for HTTP requests")
+            send_http_error(client_sock, 400, "Only http:// absolute-form supported")
             return
 
         u = urlsplit(target)
@@ -166,22 +169,16 @@ class ProxyServer:
         port = u.port or 80
         path = u.path or "/"
         if u.query:
-            path = f"{path}?{u.query}"
+            path += "?" + u.query
 
         if not host:
             send_http_error(client_sock, 400, "Invalid URL")
             return
 
-        logging.debug("Forwarding HTTP to %s:%d path=%s", host, port, path)
+        logging.debug("HTTP forward %s:%d %s", host, port, path)
 
-        # Rewrite request to origin-form and forward to upstream.
-        # Clean proxy-only headers
         headers.pop("proxy-connection", None)
-
-        # Ensure Host header is present/correct
         headers["host"] = host if port == 80 else f"{host}:{port}"
-
-        # Keep it simple for MVP
         headers["connection"] = "close"
 
         request_line = f"{method} {path} {version}\r\n"
@@ -193,7 +190,6 @@ class ProxyServer:
                 upstream.settimeout(self.idle_timeout)
                 upstream.sendall(forward)
 
-                # Relay response back to client
                 while True:
                     data = upstream.recv(4096)
                     if not data:
@@ -206,3 +202,87 @@ class ProxyServer:
             send_http_error(client_sock, 504, "Upstream timeout")
         except OSError:
             send_http_error(client_sock, 502, "Upstream connection failed")
+
+    # -------------------------
+    # HTTPS CONNECT tunneling
+    # -------------------------
+
+    def _handle_connect(self, client_sock: socket.socket, target: str) -> None:
+        if ":" not in target:
+            send_http_error(client_sock, 400, "CONNECT target must be host:port")
+            return
+
+        host, port_s = target.rsplit(":", 1)
+        try:
+            port = int(port_s)
+        except ValueError:
+            send_http_error(client_sock, 400, "Invalid CONNECT port")
+            return
+
+        logging.debug("CONNECT tunnel %s:%d", host, port)
+
+        try:
+            upstream = socket.create_connection((host, port), timeout=self.connect_timeout)
+            upstream.settimeout(self.idle_timeout)
+        except socket.gaierror:
+            send_http_error(client_sock, 502, "DNS resolution failed")
+            return
+        except TimeoutError:
+            send_http_error(client_sock, 504, "Upstream timeout")
+            return
+        except OSError:
+            send_http_error(client_sock, 502, "Upstream connection failed")
+            return
+
+        client_sock.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+
+        try:
+            self._relay_bidirectional(client_sock, upstream)
+        finally:
+            try:
+                upstream.close()
+            except Exception:
+                pass
+
+    # -------------------------
+    # Tunnel relay
+    # -------------------------
+
+    def _relay_bidirectional(
+        self,
+        a: socket.socket,
+        b: socket.socket,
+    ) -> None:
+        a.setblocking(False)
+        b.setblocking(False)
+
+        last_activity = time.monotonic()
+        sockets = [a, b]
+
+        while True:
+            if time.monotonic() - last_activity > self.idle_timeout:
+                logging.debug("Tunnel idle timeout")
+                return
+
+            readable, _, exceptional = select.select(sockets, [], sockets, 1.0)
+
+            if exceptional:
+                return
+
+            for src in readable:
+                dst = b if src is a else a
+                try:
+                    data = src.recv(4096)
+                except BlockingIOError:
+                    continue
+                except OSError:
+                    return
+
+                if not data:
+                    return
+
+                last_activity = time.monotonic()
+                try:
+                    dst.sendall(data)
+                except OSError:
+                    return
