@@ -1,0 +1,11 @@
+LICENSE
+README.md
+pyproject.toml
+src/segmentedproxy/__init__.py
+src/segmentedproxy/main.py
+src/segmentedproxy/proxy.py
+src/segmentedproxy.egg-info/PKG-INFO
+src/segmentedproxy.egg-info/SOURCES.txt
+src/segmentedproxy.egg-info/dependency_links.txt
+src/segmentedproxy.egg-info/entry_points.txt
+src/segmentedproxy.egg-info/top_level.txt

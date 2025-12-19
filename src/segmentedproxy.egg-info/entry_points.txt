@@ -1,0 +1,2 @@
+[console_scripts]
+segproxy = segmentedproxy.main:main
