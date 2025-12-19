@@ -4,10 +4,9 @@ import logging
 import select
 import socket
 import time
-from typing import Tuple
 
 
-def parse_connect_target(target: str) -> Tuple[str, int]:
+def parse_connect_target(target: str) -> tuple[str, int]:
     """
     CONNECT target is host:port
     """
@@ -62,7 +61,9 @@ def relay_bidirectional(
                 return
 
 
-def open_upstream(host: str, port: int, connect_timeout: float, idle_timeout: float) -> socket.socket:
+def open_upstream(
+    host: str, port: int, connect_timeout: float, idle_timeout: float
+) -> socket.socket:
     upstream = socket.create_connection((host, port), timeout=connect_timeout)
     upstream.settimeout(idle_timeout)
     return upstream

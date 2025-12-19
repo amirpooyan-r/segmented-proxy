@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import socket
 from dataclasses import dataclass
-from typing import Dict, Tuple
 from urllib.parse import urlsplit
 
 
@@ -11,7 +10,7 @@ class HttpRequest:
     method: str
     target: str
     version: str
-    headers: Dict[str, str]
+    headers: dict[str, str]
 
 
 def parse_http_request(raw: bytes) -> HttpRequest:
@@ -31,7 +30,7 @@ def parse_http_request(raw: bytes) -> HttpRequest:
 
     method, target, version = parts
 
-    headers: Dict[str, str] = {}
+    headers: dict[str, str] = {}
     for line in lines[1:]:
         if not line or b":" not in line:
             continue
@@ -49,11 +48,11 @@ def send_http_error(client_sock: socket.socket, status: int, message: str) -> No
         f"Content-Length: {len(body)}\r\n"
         f"Connection: close\r\n"
         f"\r\n"
-    ).encode("utf-8") + body
+    ).encode() + body
     client_sock.sendall(response)
 
 
-def split_absolute_http_url(target: str) -> Tuple[str, int, str]:
+def split_absolute_http_url(target: str) -> tuple[str, int, str]:
     """
     Convert absolute-form URL into (host, port, path_with_query)
     Supports http:// only.
@@ -73,6 +72,7 @@ def split_absolute_http_url(target: str) -> Tuple[str, int, str]:
         path += "?" + u.query
 
     return host, port, path
+
 
 def split_headers_and_body(raw: bytes) -> tuple[bytes, bytes]:
     """

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import socket
-from typing import Dict
 
 from segmentedproxy.config import Settings
 from segmentedproxy.http import HttpRequest, send_http_error, split_absolute_http_url
@@ -22,7 +21,7 @@ def handle_http_forward(
         send_http_error(client_sock, 400, str(e))
         return
 
-    headers: Dict[str, str] = dict(req.headers)
+    headers: dict[str, str] = dict(req.headers)
     headers.pop("proxy-connection", None)
 
     # Remove hop-by-hop headers (RFC 7230)
@@ -45,7 +44,6 @@ def handle_http_forward(
     if conn_hdr:
         for token in conn_hdr.split(","):
             headers.pop(token.strip().lower(), None)
-
 
     headers["host"] = host if port == 80 else f"{host}:{port}"
     headers["connection"] = "close"

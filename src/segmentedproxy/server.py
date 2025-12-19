@@ -3,9 +3,8 @@ from __future__ import annotations
 import logging
 import socket
 import threading
+from collections.abc import Callable
 from contextlib import closing
-from typing import Callable, Optional
-
 
 ClientHandler = Callable[[socket.socket, tuple], None]
 
@@ -23,7 +22,7 @@ class ThreadedTCPServer:
         self.handler = handler
         self._sem = threading.BoundedSemaphore(max_connections)
         self._stop_event = threading.Event()
-        self._sock: Optional[socket.socket] = None
+        self._sock: socket.socket | None = None
 
     def serve_forever(self) -> None:
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
@@ -38,7 +37,7 @@ class ThreadedTCPServer:
             while not self._stop_event.is_set():
                 try:
                     client_sock, client_addr = s.accept()
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 except OSError:
                     # socket closed during shutdown

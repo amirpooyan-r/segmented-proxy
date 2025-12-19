@@ -9,3 +9,21 @@ requires-python = ">=3.9"
 
 [project.scripts]
 segproxy = "segmentedproxy.main:main"
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "ruff",
+  "black",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]

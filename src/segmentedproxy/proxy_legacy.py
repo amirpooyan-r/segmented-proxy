@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 import logging
+import select
 import socket
 import threading
-import select
 import time
 from contextlib import closing
-from typing import Dict, Tuple
 from urllib.parse import urlsplit
-
 
 # =========================
 # Helpers (module-level)
 # =========================
+
 
 def recv_until(sock: socket.socket, marker: bytes, max_size: int = 65536) -> bytes:
     """
@@ -30,7 +29,7 @@ def recv_until(sock: socket.socket, marker: bytes, max_size: int = 65536) -> byt
     return data
 
 
-def parse_http_request(raw: bytes) -> Tuple[str, str, str, Dict[str, str]]:
+def parse_http_request(raw: bytes) -> tuple[str, str, str, dict[str, str]]:
     """
     Parse HTTP request line and headers.
     Returns (method, target, version, headers)
@@ -47,7 +46,7 @@ def parse_http_request(raw: bytes) -> Tuple[str, str, str, Dict[str, str]]:
 
     method, target, version = parts
 
-    headers: Dict[str, str] = {}
+    headers: dict[str, str] = {}
     for line in lines[1:]:
         if not line or b":" not in line:
             continue
@@ -65,13 +64,14 @@ def send_http_error(client_sock: socket.socket, status: int, message: str) -> No
         f"Content-Length: {len(body)}\r\n"
         f"Connection: close\r\n"
         f"\r\n"
-    ).encode("utf-8") + body
+    ).encode() + body
     client_sock.sendall(response)
 
 
 # =========================
 # Proxy Server
 # =========================
+
 
 class ProxyServer:
     def __init__(
@@ -158,7 +158,7 @@ class ProxyServer:
         method: str,
         target: str,
         version: str,
-        headers: Dict[str, str],
+        headers: dict[str, str],
     ) -> None:
         if not target.startswith("http://"):
             send_http_error(client_sock, 400, "Only http:// absolute-form supported")
