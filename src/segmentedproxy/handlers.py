@@ -14,7 +14,6 @@ def handle_http_forward(
     body: bytes,
     settings: Settings,
 ) -> None:
-
     try:
         host, port, path = split_absolute_http_url(req.target)
     except ValueError as e:
