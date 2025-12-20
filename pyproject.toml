@@ -5,7 +5,7 @@ description = "A lightweight educational HTTPS proxy with optional segmentation 
 authors = [{ name = "Amirpooyan Raeessi" }]
 license = { text = "GPL-3.0" }
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 
 [project.scripts]
 segproxy = "segmentedproxy.main:main"
