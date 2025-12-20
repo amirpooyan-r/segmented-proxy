@@ -6,6 +6,7 @@ It is not used by the SegmentedProxy package.
 
 See src/segmentedproxy/ for the maintained implementation.
 """
+
 from __future__ import annotations
 
 import logging
