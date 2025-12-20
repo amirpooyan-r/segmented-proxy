@@ -9,10 +9,8 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+from segmentedproxy.app import make_client_handler
 from segmentedproxy.config import Settings
-from segmentedproxy.handlers import handle_connect_tunnel, handle_http_forward
-from segmentedproxy.http import parse_http_request, send_http_error, split_headers_and_body
-from segmentedproxy.net import recv_until
 from segmentedproxy.server import ThreadedTCPServer
 
 
@@ -83,45 +81,15 @@ def start_proxy(
         deny_private=deny_private,
     )
 
-    def handle_client(client_sock: socket.socket, client_addr) -> None:
-        client_sock.settimeout(settings.idle_timeout)
+    handler = make_client_handler(settings)
 
-        raw = recv_until(client_sock, b"\r\n\r\n")
-        if not raw:
-            return
+    server = ThreadedTCPServer(
+        "127.0.0.1",
+        port,
+        handler=handler,
+        max_connections=50,
+    )
 
-        header_bytes, body_initial = split_headers_and_body(raw)
-
-        try:
-            req = parse_http_request(header_bytes)
-        except ValueError as e:
-            send_http_error(client_sock, 400, str(e))
-            return
-
-        # Content-Length only (integration tests keep it simple)
-        body = body_initial
-        cl = req.headers.get("content-length")
-        te = req.headers.get("transfer-encoding")
-        if te and te.lower() != "identity":
-            send_http_error(client_sock, 501, "Transfer-Encoding not supported yet")
-            return
-
-        if cl:
-            total = int(cl)
-            remaining = total - len(body)
-            while remaining > 0:
-                chunk = client_sock.recv(min(4096, remaining))
-                if not chunk:
-                    break
-                body += chunk
-                remaining -= len(chunk)
-
-        if req.method.upper() == "CONNECT":
-            handle_connect_tunnel(client_sock, req.target, settings)
-        else:
-            handle_http_forward(client_sock, req, body, settings)
-
-    server = ThreadedTCPServer("127.0.0.1", port, handler=handle_client, max_connections=50)
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
     return server
