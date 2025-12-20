@@ -1,3 +1,11 @@
+"""
+LEGACY / ARCHIVE
+
+This file is kept for historical reference only.
+It is not used by the SegmentedProxy package.
+
+See src/segmentedproxy/ for the maintained implementation.
+"""
 from __future__ import annotations
 
 import logging
