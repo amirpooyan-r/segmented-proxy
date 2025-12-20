@@ -27,6 +27,31 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--idle-timeout", type=float, default=60.0)
     p.add_argument("--max-connections", type=int, default=200)
     p.add_argument("--log-level", default="INFO")
+    p.add_argument(
+        "--allow-domain",
+        action="append",
+        default=[],
+        help="Allow domain or suffix (e.g. example.com or .example.com)",
+    )
+    p.add_argument(
+        "--deny-domain",
+        action="append",
+        default=[],
+        help="Deny domain or suffix (e.g. ads.com or .ads.com)",
+    )
+    p.add_argument(
+        "--deny-private",
+        action="store_true",
+        default=True,
+        help="Block private/loopback/reserved IPs (default: on)",
+    )
+    p.add_argument(
+        "--allow-private",
+        action="store_true",
+        default=False,
+        help="Allow private/loopback/reserved IPs (disables deny-private)",
+    )
+
     return p
 
 
@@ -37,6 +62,9 @@ def make_settings(args: argparse.Namespace) -> Settings:
         connect_timeout=args.connect_timeout,
         idle_timeout=args.idle_timeout,
         max_connections=args.max_connections,
+        allow_domains=tuple(args.allow_domain),
+        deny_domains=tuple(args.deny_domain),
+        deny_private=(not args.allow_private),
     )
 
 

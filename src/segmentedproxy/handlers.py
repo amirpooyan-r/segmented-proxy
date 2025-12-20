@@ -5,6 +5,7 @@ import socket
 
 from segmentedproxy.config import Settings
 from segmentedproxy.http import HttpRequest, send_http_error, split_absolute_http_url
+from segmentedproxy.policy import check_host_policy
 from segmentedproxy.tunnel import open_upstream, parse_connect_target, relay_bidirectional
 
 
@@ -18,6 +19,16 @@ def handle_http_forward(
         host, port, path = split_absolute_http_url(req.target)
     except ValueError as e:
         send_http_error(client_sock, 400, str(e))
+        return
+
+    decision = check_host_policy(
+        host,
+        allow_domains=settings.allow_domains,
+        deny_domains=settings.deny_domains,
+        deny_private=settings.deny_private,
+    )
+    if not decision.allowed:
+        send_http_error(client_sock, 403, f"Forbidden: {decision.reason}")
         return
 
     headers: dict[str, str] = dict(req.headers)
@@ -83,6 +94,16 @@ def handle_connect_tunnel(
         host, port = parse_connect_target(target)
     except Exception:
         send_http_error(client_sock, 400, "CONNECT target must be host:port")
+        return
+
+    decision = check_host_policy(
+        host,
+        allow_domains=settings.allow_domains,
+        deny_domains=settings.deny_domains,
+        deny_private=settings.deny_private,
+    )
+    if not decision.allowed:
+        send_http_error(client_sock, 403, f"Forbidden: {decision.reason}")
         return
 
     logging.debug("CONNECT tunnel %s:%d", host, port)

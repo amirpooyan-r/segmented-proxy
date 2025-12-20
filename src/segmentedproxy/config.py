@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -10,3 +10,8 @@ class Settings:
     connect_timeout: float = 10.0
     idle_timeout: float = 60.0
     max_connections: int = 200
+
+    # Policy / segmentation rules
+    allow_domains: tuple[str, ...] = field(default_factory=tuple)
+    deny_domains: tuple[str, ...] = field(default_factory=tuple)
+    deny_private: bool = True
