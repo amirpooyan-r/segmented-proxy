@@ -28,6 +28,9 @@ class SegmentationRule:
     action: Action = "direct"
     upstream: tuple[str, int] | None = None
     reason: str | None = None
+    scheme: str | None = None
+    method: str | None = None
+    path_prefix: str | None = None
 
 
 @dataclass(frozen=True)
@@ -54,21 +57,38 @@ class SegmentationEngine:
         self._default = default
 
     def decide(self, ctx: RequestContext) -> SegmentationDecision:
+        best_rule: SegmentationRule | None = None
+        best_score = -1
+
         for rule in self._rules:
-            if fnmatch(ctx.host, rule.host_glob):
-                return SegmentationDecision(
-                    action=rule.action,
-                    policy=rule.policy,
-                    upstream=rule.upstream,
-                    matched_rule=rule,
-                    reason=rule.reason,
-                )
+            if not _rule_matches(ctx, rule):
+                continue
+
+            score = _rule_score(rule)
+            if best_rule is None or score > best_score:
+                best_rule = rule
+                best_score = score
+                continue
+
+            if score == best_score and _action_preferred(rule.action, best_rule.action):
+                best_rule = rule
+                best_score = score
+
+        if best_rule is None:
+            return SegmentationDecision(
+                action="direct",
+                policy=self._default,
+                upstream=None,
+                matched_rule=None,
+                reason=None,
+            )
+
         return SegmentationDecision(
-            action="direct",
-            policy=self._default,
-            upstream=None,
-            matched_rule=None,
-            reason=None,
+            action=best_rule.action,
+            policy=best_rule.policy,
+            upstream=best_rule.upstream,
+            matched_rule=best_rule,
+            reason=best_rule.reason,
         )
 
 
@@ -86,6 +106,7 @@ def parse_segment_rule(text: str) -> SegmentationRule:
       "<host_glob>=<mode>[,strategy=none|fixed|random][,chunk=<int>]"
       "[,min=<int>][,max=<int>][,delay=<int>]"
       "[,action=direct|upstream|block][,upstream=HOST:PORT][,reason=<text>]"
+      "[,scheme=http|https][,method=<HTTP_METHOD>][,path_prefix=<prefix>]"
     Example:
       "*.example.com=segment_upstream,chunk=512,delay=5"
     """
@@ -112,6 +133,9 @@ def parse_segment_rule(text: str) -> SegmentationRule:
     action: Action = "direct"
     upstream: tuple[str, int] | None = None
     reason: str | None = None
+    scheme: str | None = None
+    method: str | None = None
+    path_prefix: str | None = None
 
     for p in parts[1:]:
         if "=" not in p:
@@ -136,6 +160,12 @@ def parse_segment_rule(text: str) -> SegmentationRule:
             upstream = _parse_upstream(v)
         elif k == "reason":
             reason = v
+        elif k == "scheme":
+            scheme = _parse_scheme(v)
+        elif k == "method":
+            method = _parse_method(v)
+        elif k == "path_prefix":
+            path_prefix = _parse_path_prefix(v)
         else:
             raise ValueError(f"unknown rule key '{k}'")
 
@@ -155,7 +185,47 @@ def parse_segment_rule(text: str) -> SegmentationRule:
         action=action,
         upstream=upstream,
         reason=reason,
+        scheme=scheme,
+        method=method,
+        path_prefix=path_prefix,
     )
+
+
+def _rule_matches(ctx: RequestContext, rule: SegmentationRule) -> bool:
+    if not fnmatch(ctx.host, rule.host_glob):
+        return False
+    if rule.scheme is not None and rule.scheme != ctx.scheme:
+        return False
+    if rule.method is not None and rule.method != ctx.method.upper():
+        return False
+    if rule.path_prefix is not None and not ctx.path.startswith(rule.path_prefix):
+        return False
+    return True
+
+
+def _rule_score(rule: SegmentationRule) -> int:
+    score = 0
+    host_glob = rule.host_glob
+
+    if host_glob and host_glob != "*":
+        score += 1000
+    if "*" not in host_glob and "?" not in host_glob:
+        score += 500
+    elif host_glob.startswith("*."):
+        score += 200
+
+    if rule.scheme is not None:
+        score += 100
+    if rule.method is not None:
+        score += 100
+    if rule.path_prefix is not None:
+        score += len(rule.path_prefix)
+
+    return score
+
+
+def _action_preferred(action: Action, other: Action) -> bool:
+    return action == "block" and other != "block"
 
 
 def _parse_int(value: str, label: str) -> int:
@@ -208,3 +278,26 @@ def _validate_action(action: Action, upstream: tuple[str, int] | None) -> None:
         raise ValueError("upstream action requires upstream=HOST:PORT")
     if action == "block" and upstream is not None:
         raise ValueError("block action cannot include upstream")
+
+
+def _parse_scheme(value: str) -> str:
+    scheme = value.strip().lower()
+    if scheme not in {"http", "https"}:
+        raise ValueError(f"unknown scheme '{value}'")
+    return scheme
+
+
+def _parse_method(value: str) -> str:
+    method = value.strip()
+    if not method:
+        raise ValueError("method must be non-empty")
+    return method.upper()
+
+
+def _parse_path_prefix(value: str) -> str:
+    prefix = value.strip()
+    if not prefix:
+        raise ValueError("path_prefix must be non-empty")
+    if not prefix.startswith("/"):
+        prefix = "/" + prefix
+    return prefix

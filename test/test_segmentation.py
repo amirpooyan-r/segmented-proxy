@@ -79,6 +79,52 @@ def test_default_action_is_direct() -> None:
     assert rule.action == "direct"
 
 
+def test_scheme_match() -> None:
+    rules = [parse_segment_rule("*.a.com=segment_upstream,scheme=https,chunk=512")]
+    default = SegmentationPolicy(chunk_size=2048)
+    engine = SegmentationEngine(rules, default)
+
+    https_ctx = RequestContext(method="CONNECT", scheme="https", host="x.a.com", port=443, path="")
+    http_ctx = RequestContext(method="GET", scheme="http", host="x.a.com", port=80, path="/")
+
+    assert engine.decide(https_ctx).policy.chunk_size == 512
+    assert engine.decide(http_ctx).policy.chunk_size == 2048
+
+
+def test_method_match() -> None:
+    rules = [parse_segment_rule("*.a.com=segment_upstream,method=GET,chunk=512")]
+    default = SegmentationPolicy(chunk_size=2048)
+    engine = SegmentationEngine(rules, default)
+
+    get_ctx = RequestContext(method="GET", scheme="http", host="x.a.com", port=80, path="/")
+    post_ctx = RequestContext(method="POST", scheme="http", host="x.a.com", port=80, path="/")
+
+    assert engine.decide(get_ctx).policy.chunk_size == 512
+    assert engine.decide(post_ctx).policy.chunk_size == 2048
+
+
+def test_path_prefix_longer_wins() -> None:
+    rules = [
+        parse_segment_rule("*.a.com=segment_upstream,path_prefix=/api,chunk=512"),
+        parse_segment_rule("*.a.com=segment_upstream,path_prefix=/api/v1,chunk=2048"),
+    ]
+    engine = SegmentationEngine(rules, SegmentationPolicy())
+    ctx = RequestContext(method="GET", scheme="http", host="x.a.com", port=80, path="/api/v1/users")
+    decision = engine.decide(ctx)
+    assert decision.policy.chunk_size == 2048
+
+
+def test_scoring_overrides_order_with_more_specific_host() -> None:
+    rules = [
+        parse_segment_rule("*.example.com=segment_upstream,chunk=512"),
+        parse_segment_rule("api.example.com=segment_upstream,chunk=2048"),
+    ]
+    engine = SegmentationEngine(rules, SegmentationPolicy())
+    ctx = RequestContext(method="GET", scheme="http", host="api.example.com", port=80, path="/")
+    decision = engine.decide(ctx)
+    assert decision.policy.chunk_size == 2048
+
+
 def test_engine_reports_matched_rule() -> None:
     rules = [parse_segment_rule("*.a.com=segment_upstream,chunk=512")]
     engine = SegmentationEngine(rules, SegmentationPolicy())
@@ -108,6 +154,17 @@ def test_engine_first_match_wins() -> None:
     ctx = RequestContext(method="GET", scheme="http", host="x.a.com", port=80, path="/")
     decision = engine.decide(ctx)
     assert decision.policy.chunk_size == 512
+
+
+def test_engine_tiebreak_block_beats_direct() -> None:
+    rules = [
+        parse_segment_rule("*.a.com=segment_upstream,chunk=512"),
+        parse_segment_rule("*.a.com=segment_upstream,action=block,chunk=2048"),
+    ]
+    engine = SegmentationEngine(rules, SegmentationPolicy())
+    ctx = RequestContext(method="GET", scheme="http", host="x.a.com", port=80, path="/")
+    decision = engine.decide(ctx)
+    assert decision.action == "block"
 
 
 def test_engine_returns_action_and_upstream() -> None:
