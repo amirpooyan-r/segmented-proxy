@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import select
 import socket
 import threading
@@ -131,6 +132,50 @@ def relay_client_to_upstream_segmented(
                 time.sleep(delay_ms / 1000.0)
 
 
+def relay_client_to_upstream_random_segmented(
+    client: socket.socket,
+    upstream: socket.socket,
+    *,
+    min_chunk: int,
+    max_chunk: int,
+    delay_ms: int,
+    idle_timeout: float,
+    stop: threading.Event,
+) -> None:
+    """
+    Segmented relay: client -> upstream with random chunk sizes.
+    """
+    client.settimeout(idle_timeout)
+    upstream.settimeout(idle_timeout)
+
+    if min_chunk <= 0 or max_chunk <= 0 or min_chunk > max_chunk:
+        return
+
+    while not stop.is_set():
+        try:
+            data = client.recv(4096)
+        except TimeoutError:
+            continue
+        except OSError:
+            return
+
+        if not data:
+            return
+
+        idx = 0
+        data_len = len(data)
+        while idx < data_len:
+            chunk_size = random.randint(min_chunk, max_chunk)
+            part = data[idx : idx + chunk_size]
+            idx += chunk_size
+            try:
+                upstream.sendall(part)
+            except OSError:
+                return
+            if delay_ms > 0:
+                time.sleep(delay_ms / 1000.0)
+
+
 def relay_tunnel(
     client: socket.socket,
     upstream: socket.socket,
@@ -154,6 +199,10 @@ def relay_tunnel(
         relay_bidirectional(client, upstream, idle_timeout=idle_timeout)
         return
 
+    if policy.strategy == "none":
+        relay_bidirectional(client, upstream, idle_timeout=idle_timeout)
+        return
+
     stop = threading.Event()
 
     # upstream -> client (direct)
@@ -166,14 +215,44 @@ def relay_tunnel(
 
     try:
         # client -> upstream (segmented)
-        relay_client_to_upstream_segmented(
-            client,
-            upstream,
-            chunk_size=policy.chunk_size,
-            delay_ms=policy.delay_ms,
-            idle_timeout=idle_timeout,
-            stop=stop,
-        )
+        if policy.strategy == "fixed":
+            relay_client_to_upstream_segmented(
+                client,
+                upstream,
+                chunk_size=policy.chunk_size,
+                delay_ms=policy.delay_ms,
+                idle_timeout=idle_timeout,
+                stop=stop,
+            )
+        elif policy.strategy == "random":
+            if policy.min_chunk is None or policy.max_chunk is None:
+                relay_client_to_upstream_segmented(
+                    client,
+                    upstream,
+                    chunk_size=policy.chunk_size,
+                    delay_ms=policy.delay_ms,
+                    idle_timeout=idle_timeout,
+                    stop=stop,
+                )
+            else:
+                relay_client_to_upstream_random_segmented(
+                    client,
+                    upstream,
+                    min_chunk=policy.min_chunk,
+                    max_chunk=policy.max_chunk,
+                    delay_ms=policy.delay_ms,
+                    idle_timeout=idle_timeout,
+                    stop=stop,
+                )
+        else:
+            relay_client_to_upstream_segmented(
+                client,
+                upstream,
+                chunk_size=policy.chunk_size,
+                delay_ms=policy.delay_ms,
+                idle_timeout=idle_timeout,
+                stop=stop,
+            )
     finally:
         stop.set()
         t.join(timeout=1.0)

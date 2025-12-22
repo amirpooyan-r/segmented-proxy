@@ -24,13 +24,39 @@ class SegmentationRule:
     policy: SegmentationPolicy
 
 
+@dataclass(frozen=True)
+class RequestContext:
+    method: str
+    scheme: str
+    host: str
+    port: int
+    path: str = ""
+
+
+@dataclass(frozen=True)
+class SegmentationDecision:
+    policy: SegmentationPolicy
+    matched_rule: SegmentationRule | None = None
+
+
+class SegmentationEngine:
+    def __init__(self, rules: Iterable[SegmentationRule], default: SegmentationPolicy) -> None:
+        self._rules = list(rules)
+        self._default = default
+
+    def decide(self, ctx: RequestContext) -> SegmentationDecision:
+        for rule in self._rules:
+            if fnmatch(ctx.host, rule.host_glob):
+                return SegmentationDecision(policy=rule.policy, matched_rule=rule)
+        return SegmentationDecision(policy=self._default, matched_rule=None)
+
+
 def match_policy(
     host: str, rules: Iterable[SegmentationRule], default: SegmentationPolicy
 ) -> SegmentationPolicy:
-    for rule in rules:
-        if fnmatch(host, rule.host_glob):
-            return rule.policy
-    return default
+    engine = SegmentationEngine(rules, default)
+    decision = engine.decide(RequestContext(method="", scheme="", host=host, port=0, path=""))
+    return decision.policy
 
 
 def parse_segment_rule(text: str) -> SegmentationRule:

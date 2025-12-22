@@ -1,6 +1,8 @@
 import pytest
 
 from segmentedproxy.segmentation import (
+    RequestContext,
+    SegmentationEngine,
     SegmentationPolicy,
     match_policy,
     parse_segment_rule,
@@ -59,3 +61,33 @@ def test_match_policy_returns_default_when_no_match() -> None:
     default = SegmentationPolicy(mode="direct")
     policy = match_policy("host.a.com", rules, default)
     assert policy == default
+
+
+def test_engine_reports_matched_rule() -> None:
+    rules = [parse_segment_rule("*.a.com=segment_upstream,chunk=512")]
+    engine = SegmentationEngine(rules, SegmentationPolicy())
+    ctx = RequestContext(method="GET", scheme="http", host="x.a.com", port=80, path="/")
+    decision = engine.decide(ctx)
+    assert decision.matched_rule is not None
+    assert decision.matched_rule.host_glob == "*.a.com"
+
+
+def test_engine_reports_default_when_no_match() -> None:
+    rules = [parse_segment_rule("*.b.com=segment_upstream,chunk=512")]
+    default = SegmentationPolicy(mode="direct")
+    engine = SegmentationEngine(rules, default)
+    ctx = RequestContext(method="GET", scheme="http", host="x.a.com", port=80, path="/")
+    decision = engine.decide(ctx)
+    assert decision.matched_rule is None
+    assert decision.policy == default
+
+
+def test_engine_first_match_wins() -> None:
+    rules = [
+        parse_segment_rule("*.a.com=segment_upstream,chunk=512"),
+        parse_segment_rule("*.a.com=segment_upstream,chunk=2048"),
+    ]
+    engine = SegmentationEngine(rules, SegmentationPolicy())
+    ctx = RequestContext(method="GET", scheme="http", host="x.a.com", port=80, path="/")
+    decision = engine.decide(ctx)
+    assert decision.policy.chunk_size == 512

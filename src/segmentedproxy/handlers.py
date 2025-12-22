@@ -6,7 +6,7 @@ import socket
 from segmentedproxy.config import Settings
 from segmentedproxy.http import HttpRequest, send_http_error, split_absolute_http_url
 from segmentedproxy.policy import check_host_policy
-from segmentedproxy.segmentation import match_policy
+from segmentedproxy.segmentation import RequestContext, SegmentationEngine
 from segmentedproxy.tunnel import open_upstream, parse_connect_target, relay_tunnel
 
 
@@ -60,7 +60,25 @@ def handle_http_forward(
     header_blob = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
     forward = (request_line + header_blob + "\r\n").encode("iso-8859-1")
 
-    logging.debug("HTTP forward %s:%d %s", host, port, path)
+    engine = SegmentationEngine(settings.segmentation_rules, settings.segmentation_default)
+    ctx = RequestContext(
+        method=req.method,
+        scheme="http",
+        host=host,
+        port=port,
+        path=path,
+    )
+    decision = engine.decide(ctx)
+    policy = decision.policy
+
+    logging.debug(
+        "HTTP forward %s:%d %s (mode=%s strategy=%s)",
+        host,
+        port,
+        path,
+        policy.mode,
+        policy.strategy,
+    )
 
     try:
         with socket.create_connection((host, port), timeout=settings.connect_timeout) as upstream:
@@ -105,13 +123,23 @@ def handle_connect_tunnel(
         return
 
     # Pick segmentation policy for this host
-    policy = match_policy(host, settings.segmentation_rules, settings.segmentation_default)
+    engine = SegmentationEngine(settings.segmentation_rules, settings.segmentation_default)
+    ctx = RequestContext(
+        method="CONNECT",
+        scheme="https",
+        host=host,
+        port=port,
+        path="",
+    )
+    decision = engine.decide(ctx)
+    policy = decision.policy
 
     logging.debug(
-        "CONNECT tunnel %s:%d (mode=%s chunk=%d delay_ms=%d)",
+        "CONNECT tunnel %s:%d (mode=%s strategy=%s chunk=%d delay_ms=%d)",
         host,
         port,
         policy.mode,
+        policy.strategy,
         policy.chunk_size,
         policy.delay_ms,
     )
