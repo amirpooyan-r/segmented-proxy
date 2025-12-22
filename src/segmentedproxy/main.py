@@ -9,6 +9,7 @@ from segmentedproxy.config import Settings
 from segmentedproxy.handlers import handle_connect_tunnel, handle_http_forward
 from segmentedproxy.http import parse_http_request, send_http_error, split_headers_and_body
 from segmentedproxy.net import recv_until
+from segmentedproxy.segmentation import SegmentationPolicy, parse_segment_rule
 from segmentedproxy.server import ThreadedTCPServer
 
 
@@ -23,64 +24,38 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--idle-timeout", type=float, default=60.0)
     parser.add_argument("--max-connections", type=int, default=200)
     parser.add_argument("--log-level", default="INFO")
+
+    # Segmentation CLI (CONNECT)
+    parser.add_argument("--segmentation", default="direct", choices=["direct", "segment_upstream"])
+    parser.add_argument("--segment-chunk-size", type=int, default=1024)
+    parser.add_argument("--segment-delay-ms", type=int, default=0)
+    parser.add_argument(
+        "--segment-rule",
+        action="append",
+        default=[],
+        help="Example: '*.example.com=segment_upstream,chunk=512,delay=5'",
+    )
+
     return parser
 
 
 def make_settings(args: argparse.Namespace) -> Settings:
+    default_policy = SegmentationPolicy(
+        mode=args.segmentation,
+        chunk_size=args.segment_chunk_size,
+        delay_ms=args.segment_delay_ms,
+    )
+    rules = [parse_segment_rule(s) for s in args.segment_rule]
+
     return Settings(
         listen_host=args.listen_host,
         listen_port=args.listen_port,
         connect_timeout=args.connect_timeout,
         idle_timeout=args.idle_timeout,
         max_connections=args.max_connections,
+        segmentation_default=default_policy,
+        segmentation_rules=rules,
     )
-
-
-def _read_until_from_buffer(
-    sock: socket.socket,
-    buf: bytearray,
-    delim: bytes,
-    *,
-    max_bytes: int = 1024 * 1024,
-) -> bytes:
-    """
-    Read from sock until delim is found in buf. Return bytes up to and including the
-    first delim occurrence, leaving any extra bytes in buf.
-    """
-    while True:
-        idx = buf.find(delim)
-        if idx != -1:
-            end = idx + len(delim)
-            out = bytes(buf[:end])
-            del buf[:end]
-            return out
-
-        if len(buf) > max_bytes:
-            raise ValueError("Read limit exceeded while waiting for delimiter")
-
-        chunk = sock.recv(4096)
-        if not chunk:
-            # EOF
-            return b""
-        buf += chunk
-
-
-def _read_exact_from_buffer(sock: socket.socket, buf: bytearray, n: int) -> bytes:
-    """
-    Read exactly n bytes, using buf first, then the socket.
-    """
-    while len(buf) < n:
-        chunk = sock.recv(4096)
-        if not chunk:
-            break
-        buf += chunk
-
-    if len(buf) < n:
-        raise ValueError("Incomplete data")
-
-    out = bytes(buf[:n])
-    del buf[:n]
-    return out
 
 
 def read_chunked_body(client_sock: socket.socket) -> bytes:
@@ -89,11 +64,6 @@ def read_chunked_body(client_sock: socket.socket) -> bytes:
     exactly as received (chunk sizes + CRLFs + trailers).
 
     Important: we must handle socket over-reads by buffering.
-
-    Limitations:
-    - Assumes chunk boundaries align with socket reads.
-    - Does not support malformed or streaming chunk extensions.
-    - Intended for forwarding, not reassembly or inspection.
     """
     out = bytearray()
     buf = bytearray()
@@ -106,7 +76,6 @@ def read_chunked_body(client_sock: socket.socket) -> bytes:
         return True
 
     def read_until(delim: bytes) -> bytes:
-        # Return bytes up to and including delim. Keep remainder in buf.
         while True:
             idx = buf.find(delim)
             if idx != -1:
@@ -115,7 +84,6 @@ def read_chunked_body(client_sock: socket.socket) -> bytes:
                 del buf[:end]
                 return chunk
             if not recv_more():
-                # EOF
                 chunk = bytes(buf)
                 buf.clear()
                 return chunk
@@ -136,17 +104,15 @@ def read_chunked_body(client_sock: socket.socket) -> bytes:
 
         out += line
 
-        # Parse size (ignore extensions after ';')
         size_token = line.split(b";", 1)[0].strip()
         size_token = size_token.rstrip(b"\r\n")
-
         try:
             size = int(size_token, 16)
         except ValueError as exc:
             raise ValueError("Invalid chunk size") from exc
 
         if size == 0:
-            # After 0-size chunk: read trailers, which end with a blank line "\r\n"
+            # trailers end with blank line "\r\n"
             while True:
                 trailer_line = read_until(b"\r\n")
                 if not trailer_line:
@@ -156,11 +122,9 @@ def read_chunked_body(client_sock: socket.socket) -> bytes:
                     break
             break
 
-        # Chunk data + trailing CRLF
         data_plus_crlf = read_exact(size + 2)
         if len(data_plus_crlf) < size + 2:
             raise ValueError("Incomplete chunk data")
-
         out += data_plus_crlf
 
     return bytes(out)
@@ -178,7 +142,7 @@ def read_request_body(
     if transfer_encoding:
         te = transfer_encoding.lower()
         if te == "chunked":
-            # If we already buffered body bytes, we'd need a more complex parser.
+            # v1 limitation: if initial_body contains bytes, we'd need to seed the chunk buffer.
             if initial_body:
                 raise ValueError("Chunked body with buffered bytes not supported yet")
             return read_chunked_body(client_sock)
@@ -186,7 +150,6 @@ def read_request_body(
         if te != "identity":
             raise ValueError("Transfer-Encoding not supported")
 
-    # Content-Length path
     body = initial_body
     content_length = headers.get("content-length")
     if not content_length:
@@ -209,9 +172,6 @@ def read_request_body(
 
 
 def handle_client_factory(settings: Settings):
-    """
-    Factory returning a connection handler bound to Settings.
-    """
     conn_ids = itertools.count(1)
 
     def handle_client(client_sock: socket.socket, client_addr) -> None:

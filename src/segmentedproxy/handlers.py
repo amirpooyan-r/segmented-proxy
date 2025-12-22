@@ -6,7 +6,8 @@ import socket
 from segmentedproxy.config import Settings
 from segmentedproxy.http import HttpRequest, send_http_error, split_absolute_http_url
 from segmentedproxy.policy import check_host_policy
-from segmentedproxy.tunnel import open_upstream, parse_connect_target, relay_bidirectional
+from segmentedproxy.segmentation import match_policy
+from segmentedproxy.tunnel import open_upstream, parse_connect_target, relay_tunnel
 
 
 def handle_http_forward(
@@ -21,18 +22,7 @@ def handle_http_forward(
         send_http_error(client_sock, 400, str(e))
         return
 
-    decision = check_host_policy(
-        host,
-        allow_domains=settings.allow_domains,
-        deny_domains=settings.deny_domains,
-        deny_private=settings.deny_private,
-    )
-    if not decision.allowed:
-        send_http_error(client_sock, 403, f"Forbidden: {decision.reason}")
-        return
-
     headers: dict[str, str] = dict(req.headers)
-    headers.pop("proxy-connection", None)
 
     # Remove hop-by-hop headers (RFC 7230)
     hop_by_hop = {
@@ -54,6 +44,14 @@ def handle_http_forward(
     if conn_hdr:
         for token in conn_hdr.split(","):
             headers.pop(token.strip().lower(), None)
+
+    # --- IMPORTANT: chunked + Content-Length cannot coexist ---
+    # We removed "transfer-encoding" from forwarded headers because it's hop-by-hop.
+    # But if the request body we are sending is chunked bytes, we must also ensure
+    # we don't send Content-Length to the upstream.
+    te = req.headers.get("transfer-encoding")
+    if te and te.lower() == "chunked":
+        headers.pop("content-length", None)
 
     headers["host"] = host if port == 80 else f"{host}:{port}"
     headers["connection"] = "close"
@@ -106,7 +104,17 @@ def handle_connect_tunnel(
         send_http_error(client_sock, 403, f"Forbidden: {decision.reason}")
         return
 
-    logging.debug("CONNECT tunnel %s:%d", host, port)
+    # Pick segmentation policy for this host
+    policy = match_policy(host, settings.segmentation_rules, settings.segmentation_default)
+
+    logging.debug(
+        "CONNECT tunnel %s:%d (mode=%s chunk=%d delay_ms=%d)",
+        host,
+        port,
+        policy.mode,
+        policy.chunk_size,
+        policy.delay_ms,
+    )
 
     try:
         upstream = open_upstream(host, port, settings.connect_timeout, settings.idle_timeout)
@@ -123,7 +131,12 @@ def handle_connect_tunnel(
     client_sock.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
 
     try:
-        relay_bidirectional(client_sock, upstream, idle_timeout=settings.idle_timeout)
+        relay_tunnel(
+            client_sock,
+            upstream,
+            idle_timeout=settings.idle_timeout,
+            policy=policy,
+        )
     finally:
         try:
             upstream.close()

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from segmentedproxy.segmentation import SegmentationPolicy, SegmentationRule
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -15,3 +17,7 @@ class Settings:
     allow_domains: tuple[str, ...] = field(default_factory=tuple)
     deny_domains: tuple[str, ...] = field(default_factory=tuple)
     deny_private: bool = True
+
+    # Segmentation (CONNECT tunnel behavior)
+    segmentation_default: SegmentationPolicy = SegmentationPolicy()
+    segmentation_rules: list[SegmentationRule] = field(default_factory=list)
