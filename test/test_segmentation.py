@@ -63,6 +63,22 @@ def test_match_policy_returns_default_when_no_match() -> None:
     assert policy == default
 
 
+def test_parse_action_block() -> None:
+    rule = parse_segment_rule("*.a.com=segment_upstream,action=block")
+    assert rule.action == "block"
+
+
+def test_parse_action_upstream() -> None:
+    rule = parse_segment_rule("*.a.com=segment_upstream,action=upstream,upstream=proxy.local:8080")
+    assert rule.action == "upstream"
+    assert rule.upstream == ("proxy.local", 8080)
+
+
+def test_default_action_is_direct() -> None:
+    rule = parse_segment_rule("*.a.com=segment_upstream,chunk=512")
+    assert rule.action == "direct"
+
+
 def test_engine_reports_matched_rule() -> None:
     rules = [parse_segment_rule("*.a.com=segment_upstream,chunk=512")]
     engine = SegmentationEngine(rules, SegmentationPolicy())
@@ -80,6 +96,7 @@ def test_engine_reports_default_when_no_match() -> None:
     decision = engine.decide(ctx)
     assert decision.matched_rule is None
     assert decision.policy == default
+    assert decision.action == "direct"
 
 
 def test_engine_first_match_wins() -> None:
@@ -91,3 +108,14 @@ def test_engine_first_match_wins() -> None:
     ctx = RequestContext(method="GET", scheme="http", host="x.a.com", port=80, path="/")
     decision = engine.decide(ctx)
     assert decision.policy.chunk_size == 512
+
+
+def test_engine_returns_action_and_upstream() -> None:
+    rules = [
+        parse_segment_rule("*.a.com=segment_upstream,action=upstream,upstream=proxy.local:8080")
+    ]
+    engine = SegmentationEngine(rules, SegmentationPolicy())
+    ctx = RequestContext(method="GET", scheme="http", host="x.a.com", port=80, path="/")
+    decision = engine.decide(ctx)
+    assert decision.action == "upstream"
+    assert decision.upstream == ("proxy.local", 8080)

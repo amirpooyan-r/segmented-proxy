@@ -3,6 +3,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from fnmatch import fnmatch
+from typing import Literal, cast
+
+Action = Literal["direct", "upstream", "block"]
 
 
 @dataclass(frozen=True)
@@ -22,6 +25,9 @@ class SegmentationPolicy:
 class SegmentationRule:
     host_glob: str
     policy: SegmentationPolicy
+    action: Action = "direct"
+    upstream: tuple[str, int] | None = None
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -35,8 +41,11 @@ class RequestContext:
 
 @dataclass(frozen=True)
 class SegmentationDecision:
+    action: Action
     policy: SegmentationPolicy
+    upstream: tuple[str, int] | None = None
     matched_rule: SegmentationRule | None = None
+    reason: str | None = None
 
 
 class SegmentationEngine:
@@ -47,8 +56,20 @@ class SegmentationEngine:
     def decide(self, ctx: RequestContext) -> SegmentationDecision:
         for rule in self._rules:
             if fnmatch(ctx.host, rule.host_glob):
-                return SegmentationDecision(policy=rule.policy, matched_rule=rule)
-        return SegmentationDecision(policy=self._default, matched_rule=None)
+                return SegmentationDecision(
+                    action=rule.action,
+                    policy=rule.policy,
+                    upstream=rule.upstream,
+                    matched_rule=rule,
+                    reason=rule.reason,
+                )
+        return SegmentationDecision(
+            action="direct",
+            policy=self._default,
+            upstream=None,
+            matched_rule=None,
+            reason=None,
+        )
 
 
 def match_policy(
@@ -64,6 +85,7 @@ def parse_segment_rule(text: str) -> SegmentationRule:
     Format:
       "<host_glob>=<mode>[,strategy=none|fixed|random][,chunk=<int>]"
       "[,min=<int>][,max=<int>][,delay=<int>]"
+      "[,action=direct|upstream|block][,upstream=HOST:PORT][,reason=<text>]"
     Example:
       "*.example.com=segment_upstream,chunk=512,delay=5"
     """
@@ -87,6 +109,9 @@ def parse_segment_rule(text: str) -> SegmentationRule:
     delay_ms = 0
     min_chunk: int | None = None
     max_chunk: int | None = None
+    action: Action = "direct"
+    upstream: tuple[str, int] | None = None
+    reason: str | None = None
 
     for p in parts[1:]:
         if "=" not in p:
@@ -105,10 +130,17 @@ def parse_segment_rule(text: str) -> SegmentationRule:
             max_chunk = _parse_int(v, k)
         elif k == "delay":
             delay_ms = _parse_int(v, "delay")
+        elif k == "action":
+            action = _parse_action(v)
+        elif k == "upstream":
+            upstream = _parse_upstream(v)
+        elif k == "reason":
+            reason = v
         else:
             raise ValueError(f"unknown rule key '{k}'")
 
     _validate_policy(strategy, chunk_size, min_chunk, max_chunk)
+    _validate_action(action, upstream)
 
     return SegmentationRule(
         host_glob=host_glob,
@@ -120,6 +152,9 @@ def parse_segment_rule(text: str) -> SegmentationRule:
             min_chunk=min_chunk,
             max_chunk=max_chunk,
         ),
+        action=action,
+        upstream=upstream,
+        reason=reason,
     )
 
 
@@ -145,3 +180,31 @@ def _validate_policy(
             raise ValueError("random strategy requires min/max > 0")
         if min_chunk > max_chunk:
             raise ValueError("random strategy requires min <= max")
+
+
+def _parse_action(value: str) -> Action:
+    action = value.strip().lower()
+    if action not in {"direct", "upstream", "block"}:
+        raise ValueError(f"unknown action '{value}'")
+    return cast(Action, action)
+
+
+def _parse_upstream(value: str) -> tuple[str, int]:
+    if ":" not in value:
+        raise ValueError("upstream must be host:port")
+    host, port_s = value.rsplit(":", 1)
+    host = host.strip()
+    if not host:
+        raise ValueError("upstream must include host")
+    try:
+        port = int(port_s)
+    except ValueError as exc:
+        raise ValueError(f"invalid upstream port '{port_s}'") from exc
+    return host, port
+
+
+def _validate_action(action: Action, upstream: tuple[str, int] | None) -> None:
+    if action == "upstream" and upstream is None:
+        raise ValueError("upstream action requires upstream=HOST:PORT")
+    if action == "block" and upstream is not None:
+        raise ValueError("block action cannot include upstream")

@@ -258,6 +258,63 @@ def relay_tunnel(
         t.join(timeout=1.0)
 
 
+def perform_upstream_connect(
+    upstream: socket.socket,
+    target_host: str,
+    target_port: int,
+    *,
+    idle_timeout: float,
+) -> bool:
+    """
+    Establish a CONNECT tunnel through an upstream HTTP proxy.
+    """
+    request = (
+        f"CONNECT {target_host}:{target_port} HTTP/1.1\r\n"
+        f"Host: {target_host}:{target_port}\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+    ).encode("iso-8859-1")
+
+    upstream.settimeout(idle_timeout)
+    upstream.sendall(request)
+
+    response = _recv_headers(upstream)
+    if not response:
+        return False
+
+    status_line = response.split(b"\r\n", 1)[0]
+    try:
+        status_text = status_line.decode("iso-8859-1", errors="replace")
+    except ValueError:
+        return False
+
+    parts = status_text.split(" ", 2)
+    if len(parts) < 2:
+        return False
+    try:
+        code = int(parts[1])
+    except ValueError:
+        return False
+    return code == 200
+
+
+def _recv_headers(sock: socket.socket, *, max_bytes: int = 65536) -> bytes:
+    data = b""
+    while b"\r\n\r\n" not in data:
+        try:
+            chunk = sock.recv(4096)
+        except TimeoutError:
+            return b""
+        except OSError:
+            return b""
+        if not chunk:
+            break
+        data += chunk
+        if len(data) > max_bytes:
+            break
+    return data
+
+
 def open_upstream(
     host: str, port: int, connect_timeout: float, idle_timeout: float
 ) -> socket.socket:
