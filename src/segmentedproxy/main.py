@@ -9,7 +9,7 @@ from segmentedproxy.config import Settings
 from segmentedproxy.handlers import handle_connect_tunnel, handle_http_forward
 from segmentedproxy.http import parse_http_request, send_http_error, split_headers_and_body
 from segmentedproxy.net import recv_until
-from segmentedproxy.segmentation import SegmentationPolicy, parse_segment_rule
+from segmentedproxy.segmentation import SegmentationPolicy, SegmentationRule, parse_segment_rule
 from segmentedproxy.server import ThreadedTCPServer
 
 
@@ -35,6 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Example: '*.example.com=segment_upstream,chunk=512,delay=5'",
     )
+    parser.add_argument(
+        "--validate-rules",
+        action="store_true",
+        help="Parse and print rule summary, then exit.",
+    )
 
     return parser
 
@@ -56,6 +61,50 @@ def make_settings(args: argparse.Namespace) -> Settings:
         segmentation_default=default_policy,
         segmentation_rules=rules,
     )
+
+
+def format_rule(rule: SegmentationRule) -> str:
+    parts: list[str] = [f"host={rule.host_glob}"]
+    if rule.scheme:
+        parts.append(f"scheme={rule.scheme}")
+    if rule.method:
+        parts.append(f"method={rule.method}")
+    if rule.path_prefix:
+        parts.append(f"path={_shorten(rule.path_prefix)}")
+    parts.append(f"action={rule.action}")
+    if rule.upstream:
+        parts.append(f"upstream={rule.upstream[0]}:{rule.upstream[1]}")
+    if rule.reason:
+        parts.append(f"reason={_shorten(rule.reason)}")
+    parts.append(f"mode={rule.policy.mode}")
+    parts.append(f"strategy={rule.policy.strategy}")
+    parts.append(f"chunk={rule.policy.chunk_size}")
+    parts.append(f"delay={rule.policy.delay_ms}")
+    if rule.policy.min_chunk is not None:
+        parts.append(f"min={rule.policy.min_chunk}")
+    if rule.policy.max_chunk is not None:
+        parts.append(f"max={rule.policy.max_chunk}")
+    return " ".join(parts)
+
+
+def format_default_policy(policy: SegmentationPolicy) -> str:
+    parts = [
+        f"mode={policy.mode}",
+        f"strategy={policy.strategy}",
+        f"chunk={policy.chunk_size}",
+        f"delay={policy.delay_ms}",
+    ]
+    if policy.min_chunk is not None:
+        parts.append(f"min={policy.min_chunk}")
+    if policy.max_chunk is not None:
+        parts.append(f"max={policy.max_chunk}")
+    return " ".join(parts)
+
+
+def _shorten(value: str, max_len: int = 24) -> str:
+    if len(value) <= max_len:
+        return value
+    return value[: max_len - 3] + "..."
 
 
 def read_chunked_body(client_sock: socket.socket) -> bytes:
@@ -208,6 +257,22 @@ def handle_client_factory(settings: Settings):
 
 def main() -> None:
     args = build_parser().parse_args()
+    if args.validate_rules:
+        try:
+            settings = make_settings(args)
+        except ValueError as exc:
+            print(f"Rule error: {exc}")
+            raise SystemExit(2) from exc
+
+        print("Default policy:", format_default_policy(settings.segmentation_default))
+        if settings.segmentation_rules:
+            print("Rules:")
+            for idx, rule in enumerate(settings.segmentation_rules, 1):
+                print(f"{idx:02d}. {format_rule(rule)}")
+        else:
+            print("Rules: (none)")
+        raise SystemExit(0)
+
     settings = make_settings(args)
 
     logging.basicConfig(
