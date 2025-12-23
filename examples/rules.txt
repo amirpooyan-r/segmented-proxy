@@ -1,0 +1,11 @@
+# Block a tracking host (applies to both http/https)
+tracker.example.com=direct,action=block,reason=tracking
+
+# Use an upstream proxy for a domain
+*.example.com=segment_upstream,action=upstream,upstream=127.0.0.1:3128
+
+# Segment only HTTPS CONNECT traffic with random chunk sizes
+*.example.com=segment_upstream,scheme=https,method=CONNECT,strategy=random,min=256,max=1024,delay=5
+
+# Segment HTTP request bodies for a specific API path when using an upstream proxy
+api.example.com=segment_upstream,action=upstream,upstream=127.0.0.1:3128,scheme=http,method=POST,path_prefix=/v1/upload,strategy=fixed,chunk=512
