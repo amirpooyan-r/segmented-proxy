@@ -49,6 +49,8 @@ class SegmentationDecision:
     upstream: tuple[str, int] | None = None
     matched_rule: SegmentationRule | None = None
     reason: str | None = None
+    score: int = 0
+    explain: str | None = None
 
 
 class SegmentationEngine:
@@ -81,6 +83,8 @@ class SegmentationEngine:
                 upstream=None,
                 matched_rule=None,
                 reason=None,
+                score=-1,
+                explain="no rule matched; using default policy",
             )
 
         return SegmentationDecision(
@@ -89,6 +93,8 @@ class SegmentationEngine:
             upstream=best_rule.upstream,
             matched_rule=best_rule,
             reason=best_rule.reason,
+            score=best_score,
+            explain=_format_explain(ctx, best_rule, best_score),
         )
 
 
@@ -226,6 +232,27 @@ def _rule_score(rule: SegmentationRule) -> int:
 
 def _action_preferred(action: Action, other: Action) -> bool:
     return action == "block" and other != "block"
+
+
+def _format_explain(ctx: RequestContext, rule: SegmentationRule, score: int) -> str:
+    parts = [f"host_glob={rule.host_glob}"]
+    if rule.scheme is not None:
+        parts.append(f"scheme={rule.scheme}")
+    if rule.method is not None:
+        parts.append(f"method={rule.method}")
+    if rule.path_prefix is not None:
+        parts.append(f"path_prefix={rule.path_prefix}")
+
+    ctx_parts = [
+        f"host={ctx.host}",
+        f"scheme={ctx.scheme}",
+        f"method={ctx.method.upper()}",
+        f"path={ctx.path}",
+    ]
+
+    return (
+        f"matched {' '.join(parts)}; ctx {' '.join(ctx_parts)}; score={score}; action={rule.action}"
+    )
 
 
 def _parse_int(value: str, label: str) -> int:

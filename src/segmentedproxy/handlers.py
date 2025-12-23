@@ -81,16 +81,21 @@ def handle_http_forward(
     )
     decision = engine.decide(ctx)
     policy = decision.policy
+    matched = decision.matched_rule.host_glob if decision.matched_rule else "<default>"
 
     logging.debug(
-        "HTTP forward %s:%d %s (action=%s mode=%s strategy=%s)",
+        "HTTP forward %s:%d %s (rule=%s score=%d action=%s mode=%s strategy=%s)",
         host,
         port,
         path,
+        matched,
+        decision.score,
         decision.action,
         policy.mode,
         policy.strategy,
     )
+    if decision.explain:
+        logging.debug("HTTP forward decision: %s", decision.explain)
 
     if decision.action == "block":
         reason = decision.reason or "Blocked by segmentation rule"
@@ -165,17 +170,24 @@ def handle_connect_tunnel(
     )
     decision = engine.decide(ctx)
     policy = decision.policy
+    matched = decision.matched_rule.host_glob if decision.matched_rule else "<default>"
 
     logging.debug(
-        "CONNECT tunnel %s:%d (action=%s mode=%s strategy=%s chunk=%d delay_ms=%d)",
+        "CONNECT tunnel %s:%d "
+        "(rule=%s score=%d action=%s mode=%s "
+        "strategy=%s chunk=%d delay_ms=%d)",
         host,
         port,
+        matched,
+        decision.score,
         decision.action,
         policy.mode,
         policy.strategy,
         policy.chunk_size,
         policy.delay_ms,
     )
+    if decision.explain:
+        logging.debug("CONNECT decision: %s", decision.explain)
 
     if decision.action == "block":
         reason = decision.reason or "Blocked by segmentation rule"

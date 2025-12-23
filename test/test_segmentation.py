@@ -87,8 +87,16 @@ def test_scheme_match() -> None:
     https_ctx = RequestContext(method="CONNECT", scheme="https", host="x.a.com", port=443, path="")
     http_ctx = RequestContext(method="GET", scheme="http", host="x.a.com", port=80, path="/")
 
-    assert engine.decide(https_ctx).policy.chunk_size == 512
-    assert engine.decide(http_ctx).policy.chunk_size == 2048
+    https_decision = engine.decide(https_ctx)
+    http_decision = engine.decide(http_ctx)
+
+    assert https_decision.policy.chunk_size == 512
+    assert https_decision.score >= 0
+    assert https_decision.explain is not None
+
+    assert http_decision.policy.chunk_size == 2048
+    assert http_decision.score == -1
+    assert http_decision.explain is not None
 
 
 def test_method_match() -> None:
@@ -99,8 +107,16 @@ def test_method_match() -> None:
     get_ctx = RequestContext(method="GET", scheme="http", host="x.a.com", port=80, path="/")
     post_ctx = RequestContext(method="POST", scheme="http", host="x.a.com", port=80, path="/")
 
-    assert engine.decide(get_ctx).policy.chunk_size == 512
-    assert engine.decide(post_ctx).policy.chunk_size == 2048
+    get_decision = engine.decide(get_ctx)
+    post_decision = engine.decide(post_ctx)
+
+    assert get_decision.policy.chunk_size == 512
+    assert get_decision.score >= 0
+    assert get_decision.explain is not None
+
+    assert post_decision.policy.chunk_size == 2048
+    assert post_decision.score == -1
+    assert post_decision.explain is not None
 
 
 def test_path_prefix_longer_wins() -> None:
@@ -112,6 +128,8 @@ def test_path_prefix_longer_wins() -> None:
     ctx = RequestContext(method="GET", scheme="http", host="x.a.com", port=80, path="/api/v1/users")
     decision = engine.decide(ctx)
     assert decision.policy.chunk_size == 2048
+    assert decision.score >= 0
+    assert decision.explain is not None
 
 
 def test_scoring_overrides_order_with_more_specific_host() -> None:
@@ -123,6 +141,8 @@ def test_scoring_overrides_order_with_more_specific_host() -> None:
     ctx = RequestContext(method="GET", scheme="http", host="api.example.com", port=80, path="/")
     decision = engine.decide(ctx)
     assert decision.policy.chunk_size == 2048
+    assert decision.score >= 0
+    assert decision.explain is not None
 
 
 def test_engine_reports_matched_rule() -> None:
@@ -132,6 +152,8 @@ def test_engine_reports_matched_rule() -> None:
     decision = engine.decide(ctx)
     assert decision.matched_rule is not None
     assert decision.matched_rule.host_glob == "*.a.com"
+    assert decision.score >= 0
+    assert decision.explain is not None
 
 
 def test_engine_reports_default_when_no_match() -> None:
@@ -143,6 +165,9 @@ def test_engine_reports_default_when_no_match() -> None:
     assert decision.matched_rule is None
     assert decision.policy == default
     assert decision.action == "direct"
+    assert decision.score == -1
+    assert decision.explain is not None
+    assert "default" in decision.explain
 
 
 def test_engine_first_match_wins() -> None:
@@ -154,6 +179,8 @@ def test_engine_first_match_wins() -> None:
     ctx = RequestContext(method="GET", scheme="http", host="x.a.com", port=80, path="/")
     decision = engine.decide(ctx)
     assert decision.policy.chunk_size == 512
+    assert decision.score >= 0
+    assert decision.explain is not None
 
 
 def test_engine_tiebreak_block_beats_direct() -> None:
@@ -165,6 +192,8 @@ def test_engine_tiebreak_block_beats_direct() -> None:
     ctx = RequestContext(method="GET", scheme="http", host="x.a.com", port=80, path="/")
     decision = engine.decide(ctx)
     assert decision.action == "block"
+    assert decision.score >= 0
+    assert decision.explain is not None
 
 
 def test_engine_returns_action_and_upstream() -> None:
@@ -176,3 +205,5 @@ def test_engine_returns_action_and_upstream() -> None:
     decision = engine.decide(ctx)
     assert decision.action == "upstream"
     assert decision.upstream == ("proxy.local", 8080)
+    assert decision.score >= 0
+    assert decision.explain is not None
