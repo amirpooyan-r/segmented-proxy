@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+import random
 import socket
+import time
 
 from segmentedproxy.config import Settings
 from segmentedproxy.http import HttpRequest, send_http_error, split_absolute_http_url
 from segmentedproxy.policy import check_host_policy
-from segmentedproxy.segmentation import RequestContext, SegmentationEngine
+from segmentedproxy.segmentation import RequestContext, SegmentationEngine, SegmentationPolicy
 from segmentedproxy.tunnel import (
     open_upstream,
     parse_connect_target,
@@ -121,8 +123,11 @@ def handle_http_forward(
         with socket.create_connection(upstream_addr, timeout=settings.connect_timeout) as upstream:
             upstream.settimeout(settings.idle_timeout)
             upstream.sendall(forward)
-            if body:
-                upstream.sendall(body)
+            if decision.action == "upstream":
+                _send_body_with_policy(upstream, body, policy)
+            else:
+                if body:
+                    upstream.sendall(body)
 
             while True:
                 data = upstream.recv(4096)
@@ -249,3 +254,52 @@ def _build_absolute_url(host: str, port: int, path: str) -> str:
     if port == 80:
         return f"http://{host}{path}"
     return f"http://{host}:{port}{path}"
+
+
+def _send_body_with_policy(sock: socket.socket, body: bytes, policy: SegmentationPolicy) -> None:
+    if not body:
+        return
+
+    if policy.mode != "segment_upstream" or policy.strategy == "none":
+        sock.sendall(body)
+        return
+
+    delay_s = policy.delay_ms / 1000.0 if policy.delay_ms > 0 else 0.0
+    chunk_size = policy.chunk_size if policy.chunk_size > 0 else 1024
+
+    def send_fixed(size: int) -> None:
+        for i in range(0, len(body), size):
+            part = body[i : i + size]
+            sock.sendall(part)
+            if delay_s > 0:
+                time.sleep(delay_s)
+
+    if policy.strategy == "fixed":
+        send_fixed(chunk_size)
+        return
+
+    if policy.strategy == "random":
+        min_chunk = policy.min_chunk
+        max_chunk = policy.max_chunk
+        if (
+            min_chunk is None
+            or max_chunk is None
+            or min_chunk <= 0
+            or max_chunk <= 0
+            or min_chunk > max_chunk
+        ):
+            send_fixed(chunk_size)
+            return
+
+        idx = 0
+        body_len = len(body)
+        while idx < body_len:
+            size = random.randint(min_chunk, max_chunk)
+            part = body[idx : idx + size]
+            sock.sendall(part)
+            idx += size
+            if delay_s > 0:
+                time.sleep(delay_s)
+        return
+
+    send_fixed(chunk_size)
