@@ -29,6 +29,14 @@ Browser --CONNECT--> Proxy --TCP--> Server
 Browser <== TLS encrypted bytes ==> Server (through proxy)
 ```
 
+## Using an Upstream Proxy
+Sometimes the proxy sends traffic to another proxy first.
+That second proxy is called an upstream proxy.
+Flow:
+Browser -> SegmentedProxy -> Upstream proxy -> Server
+This can be useful for testing rules or chaining systems.
+It also helps you learn how proxies can connect to other proxies.
+
 ## References
 - MDN Proxies and Tunneling: https://developer.mozilla.org/en-US/docs/Web/HTTP/Proxy_servers_and_tunneling
 - RFC 7231: https://www.rfc-editor.org/rfc/rfc7231

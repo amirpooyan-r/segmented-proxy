@@ -89,6 +89,7 @@ DEBUG HTTP forward example.com:80 / (rule=*.example.com score=1 action=upstream 
 ```
 What it means:
 - The proxy sent the request to the upstream proxy.
+It does not connect to the website directly in this step.
 
 ## 5) Segment HTTPS CONNECT only
 What to run (start the proxy with a rule):

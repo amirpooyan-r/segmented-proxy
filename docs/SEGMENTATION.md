@@ -14,6 +14,11 @@ It can add a small delay between chunks.
 - To learn how proxies can change timing and size.
 - To understand limits of simple techniques.
 
+## Why Use It With Upstream Proxies
+This project can segment when it sends data to an upstream proxy.
+That makes it easy to test segmentation without touching the server.
+It is a safe way to study how chunking changes traffic.
+
 ## It Is Not a Guaranteed DPI Bypass
 Segmentation is not a bypass tool.
 This is not a bypass guide.
