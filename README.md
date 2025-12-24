@@ -1,81 +1,117 @@
 # SegmentedProxy
 
 ## Overview
-SegmentedProxy is an educational HTTP/HTTPS proxy that demonstrates rule-based policy decisions
-and traffic segmentation strategies. It focuses on clarity and safe defaults, making it useful for
-learning how forward proxies and CONNECT tunnels behave without decrypting TLS traffic.
+SegmentedProxy is a small HTTP/HTTPS proxy made for learning.
+It sits between your browser and the internet.
+It helps you see how rules and segmentation change traffic.
+It is not production software.
 
-The proxy supports host-based rules with optional scheme/method/path constraints, plus actions to
-direct-connect, forward via an upstream proxy, or block requests. Decisions are explainable via a
-score and a concise explanation string to aid debugging and auditing.
+## What You Will Learn
+- What HTTP and HTTPS are
+- How a proxy works between a browser and a server
+- What CONNECT tunnels are
+- What "segmentation" means in this project (send data in small parts)
+- How rules control traffic behavior
 
-## Features
-- HTTP forward and CONNECT tunneling
-- Actions: `direct` | `upstream` | `block`
-- Matching keys: `host_glob`, `scheme`, `method`, `path_prefix`
-- Segmentation strategies: `none` | `fixed` | `random`
-- Explainable decisions (score + explain string)
-- Safe defaults: deny private/reserved addresses; allow/deny lists are supported in settings
+## Who Is This Project For?
+This project is good for:
+- Students
+- Beginners learning networking
+- People curious about how browsers use proxies
 
-## Quickstart
+## Quick Start
+Step 1: Get the code (Git)
+`git clone` downloads a copy of this project to your computer.
+Git must be installed.
+```bash
+git clone git@github.com:amirpooyan-r/segmented-proxy.git
+cd segmented-proxy
+```
+
+Step 2: Create and activate a virtual environment
+Linux/macOS:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
-
-segproxy --listen-host 127.0.0.1 --listen-port 8080 --log-level INFO
 ```
 
-Configure your browser to use `127.0.0.1:8080` as an HTTP proxy. Browsers use CONNECT for HTTPS.
+Windows PowerShell:
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
 
-Example curl requests:
+Windows cmd:
+```bat
+python -m venv .venv
+.venv\Scripts\activate.bat
+```
+
+Step 3: Install the project
+```bash
+pip install -e .
+```
+
+Step 4: Run the proxy
+```bash
+segproxy --listen-host 127.0.0.1 --listen-port 8080
+```
+
+Step 5: Test with curl
 ```bash
 curl -x http://127.0.0.1:8080 http://example.com/
 curl -x http://127.0.0.1:8080 https://example.com/
 ```
 
-## Configuration / rules
-Rule format:
-```
-<host_glob>=<mode>[,strategy=none|fixed|random][,chunk=<int>][,min=<int>][,max=<int>][,delay=<int>]
-             [,action=direct|upstream|block][,upstream=HOST:PORT][,reason=<text>]
-             [,scheme=http|https][,method=<HTTP_METHOD>][,path_prefix=<prefix>]
+Note for Windows users (HTTPS and curl)
+When testing HTTPS with `curl` on Windows, you may see
+certificate warnings or TLS errors.
+This is normal.
+SegmentedProxy does not decrypt HTTPS.
+It uses a CONNECT tunnel.
+The TLS connection is between your client and the website.
+Windows `curl` may not trust all certificates by default.
+If you only want to test the proxy behavior, you can use:
+```bash
+curl -k -x http://127.0.0.1:8080 https://example.com/
 ```
 
-Examples:
-```
-# Block a tracking host
-tracker.example.com=direct,action=block,reason=tracking
+## Learning Path
+- docs/LEARNING_PATH.md
+- docs/HTTP_VS_HTTPS.md
+- docs/HOW_A_PROXY_WORKS.md
+- docs/PROJECT_STRUCTURE.md
+- docs/SEGMENTATION.md
+- docs/GLOSSARY.md
+- examples/EXPERIMENTS.md
 
-# Send traffic to an upstream proxy
+## Rules and Configuration (Short)
+Rules tell the proxy what to do with matching traffic.
+A rule can match by host, scheme, method, or path.
+Actions can be:
+- direct (connect to the server)
+- upstream (connect to another proxy)
+- block (deny the request)
+
+Segmentation can be:
+- none
+- fixed (same chunk size)
+- random (chunk size changes)
+
+Example rules:
+```
+example.com=direct
 *.example.com=segment_upstream,action=upstream,upstream=127.0.0.1:3128
-
-# Segment only HTTPS CONNECT traffic with random chunk sizes
 *.example.com=segment_upstream,scheme=https,method=CONNECT,strategy=random,min=256,max=1024,delay=5
-
-# Segment only a specific API path when using an upstream proxy
-api.example.com=segment_upstream,action=upstream,upstream=127.0.0.1:3128,scheme=http,method=POST,path_prefix=/v1/upload,strategy=fixed,chunk=512
 ```
-
-Precedence rules:
-- Higher specificity wins (host glob specificity + scheme/method/path prefix score)
-- If scores tie, `block` wins over other actions
-- If still tied, earlier rule in the list wins
-
-## Examples
-See `examples/rules.txt` for curated rules and `examples/commands.md` for runnable commands.
 
 ## Limitations
-- HTTP/1.1 only (no HTTP/2)
-- No TLS MITM/decryption (CONNECT tunneling only)
-- Request Transfer-Encoding is limited (chunked bodies are forwarded verbatim, chunk extensions
-  are not interpreted)
-- Not production hardened; timeouts and limits exist but the focus is educational
+- HTTP/1.1 only
+- No TLS decryption. HTTPS is a tunnel.
+- Not hardened for production use
 
-## Responsible use
-This project is for education, testing, and debugging in environments where you have permission.
-Do not use it to access systems or data without authorization.
-
-## License
-This project is licensed under the GNU General Public License v3.0 (GPL-3.0).
-See the LICENSE file for details.
+## Responsible Use
+This project is for learning and testing in places you control.
+This is not a bypass guide.
+Segmentation does not guarantee bypassing DPI.
+Modern networks can still detect and block many techniques.
