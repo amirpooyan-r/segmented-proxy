@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from segmentedproxy.resolver import Resolver, SystemResolver
 from segmentedproxy.segmentation import SegmentationPolicy, SegmentationRule
 
 
@@ -12,6 +13,8 @@ class Settings:
     connect_timeout: float = 10.0
     idle_timeout: float = 60.0
     max_connections: int = 200
+    dns_cache_size: int = 0
+    resolver: Resolver = field(default_factory=SystemResolver)
 
     # Policy / segmentation rules
     allow_domains: tuple[str, ...] = field(default_factory=tuple)

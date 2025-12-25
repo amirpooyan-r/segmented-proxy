@@ -9,6 +9,7 @@ from segmentedproxy.config import Settings
 from segmentedproxy.handlers import handle_connect_tunnel, handle_http_forward
 from segmentedproxy.http import parse_http_request, send_http_error, split_headers_and_body
 from segmentedproxy.net import recv_until
+from segmentedproxy.resolver import CachingResolver, SystemResolver
 from segmentedproxy.segmentation import SegmentationPolicy, SegmentationRule, parse_segment_rule
 from segmentedproxy.server import ThreadedTCPServer
 
@@ -23,6 +24,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--connect-timeout", type=float, default=10.0)
     parser.add_argument("--idle-timeout", type=float, default=60.0)
     parser.add_argument("--max-connections", type=int, default=200)
+    parser.add_argument(
+        "--dns-cache-size",
+        type=int,
+        default=0,
+        help="Max entries for DNS cache (0 disables caching).",
+    )
     parser.add_argument("--log-level", default="INFO")
 
     # Segmentation CLI (CONNECT)
@@ -45,6 +52,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def make_settings(args: argparse.Namespace) -> Settings:
+    if args.dns_cache_size < 0:
+        raise ValueError("dns-cache-size must be non-negative")
+
     default_policy = SegmentationPolicy(
         mode=args.segmentation,
         chunk_size=args.segment_chunk_size,
@@ -52,12 +62,18 @@ def make_settings(args: argparse.Namespace) -> Settings:
     )
     rules = [parse_segment_rule(s) for s in args.segment_rule]
 
+    resolver = SystemResolver()
+    if args.dns_cache_size > 0:
+        resolver = CachingResolver(resolver, max_entries=args.dns_cache_size)
+
     return Settings(
         listen_host=args.listen_host,
         listen_port=args.listen_port,
         connect_timeout=args.connect_timeout,
         idle_timeout=args.idle_timeout,
         max_connections=args.max_connections,
+        dns_cache_size=args.dns_cache_size,
+        resolver=resolver,
         segmentation_default=default_policy,
         segmentation_rules=rules,
     )

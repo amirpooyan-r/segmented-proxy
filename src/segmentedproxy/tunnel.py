@@ -7,6 +7,7 @@ import socket
 import threading
 import time
 
+from segmentedproxy.resolver import Resolver
 from segmentedproxy.segmentation import SegmentationPolicy
 
 
@@ -316,8 +317,29 @@ def _recv_headers(sock: socket.socket, *, max_bytes: int = 65536) -> bytes:
 
 
 def open_upstream(
-    host: str, port: int, connect_timeout: float, idle_timeout: float
+    host: str,
+    port: int,
+    connect_timeout: float,
+    idle_timeout: float,
+    resolver: Resolver,
 ) -> socket.socket:
-    upstream = socket.create_connection((host, port), timeout=connect_timeout)
-    upstream.settimeout(idle_timeout)
-    return upstream
+    last_error: OSError | None = None
+    addrs = resolver.resolve(host, port)
+
+    for family, ip in addrs:
+        sock = socket.socket(family, socket.SOCK_STREAM)
+        try:
+            sock.settimeout(connect_timeout)
+            sock.connect((ip, port))
+            sock.settimeout(idle_timeout)
+            return sock
+        except OSError as exc:
+            last_error = exc
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+    if last_error is not None:
+        raise last_error
+    raise OSError("No addresses resolved for connection")

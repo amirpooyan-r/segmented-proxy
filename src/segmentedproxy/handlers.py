@@ -120,8 +120,13 @@ def handle_http_forward(
         header_blob = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
         forward = (request_line + header_blob + "\r\n").encode("iso-8859-1")
 
-        with socket.create_connection(upstream_addr, timeout=settings.connect_timeout) as upstream:
-            upstream.settimeout(settings.idle_timeout)
+        with open_upstream(
+            upstream_addr[0],
+            upstream_addr[1],
+            settings.connect_timeout,
+            settings.idle_timeout,
+            settings.resolver,
+        ) as upstream:
             upstream.sendall(forward)
             if decision.action == "upstream":
                 _send_body_with_policy(upstream, body, policy)
@@ -212,7 +217,11 @@ def handle_connect_tunnel(
 
     try:
         upstream = open_upstream(
-            upstream_host, upstream_port, settings.connect_timeout, settings.idle_timeout
+            upstream_host,
+            upstream_port,
+            settings.connect_timeout,
+            settings.idle_timeout,
+            settings.resolver,
         )
     except socket.gaierror:
         send_http_error(client_sock, 502, "DNS resolution failed")
