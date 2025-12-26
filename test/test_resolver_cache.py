@@ -55,13 +55,14 @@ def test_cache_disabled() -> None:
     assert fake.calls == 2
 
 
-def test_cache_eviction_fifo() -> None:
+def test_cache_eviction_lru() -> None:
     fake = FakeResolver()
     resolver = CachingResolver(fake, max_entries=2)
 
     resolver.resolve("a.example", 80)
     resolver.resolve("b.example", 80)
-    resolver.resolve("c.example", 80)
     resolver.resolve("a.example", 80)
+    resolver.resolve("c.example", 80)
+    resolver.resolve("b.example", 80)
 
     assert fake.calls == 4

@@ -5,6 +5,7 @@ import socket
 import struct
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -253,7 +254,10 @@ class CachingResolver:
         self._inner = inner
         self._max_entries = max_entries
         self._lock = threading.Lock()
-        self._cache: dict[tuple[str, int], tuple[float, tuple[tuple[int, str], ...]]] = {}
+        self._cache: OrderedDict[
+            tuple[str, int],
+            tuple[float, tuple[tuple[int, str], ...]],
+        ] = OrderedDict()
 
     def resolve(self, host: str, port: int) -> ResolveResult:
         if self._max_entries <= 0:
@@ -267,6 +271,7 @@ class CachingResolver:
             if entry is not None:
                 expires_at, addrs = entry
                 if now < expires_at:
+                    self._cache.move_to_end(key, last=True)
                     return ResolveResult(addrs=list(addrs), ttl_seconds=int(expires_at - now))
                 del self._cache[key]
 
@@ -280,8 +285,7 @@ class CachingResolver:
 
         with self._lock:
             if key not in self._cache and len(self._cache) >= self._max_entries:
-                oldest_key = next(iter(self._cache))
-                self._cache.pop(oldest_key, None)
+                self._cache.popitem(last=False)
             self._cache[key] = (expires_at, tuple(result.addrs))
 
         return result

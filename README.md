@@ -105,30 +105,22 @@ example.com=direct
 *.example.com=segment_upstream,scheme=https,method=CONNECT,strategy=random,min=256,max=1024,delay=5
 ```
 
-## DNS Resolution and Caching
+## DNS Resolution
 
-The proxy still needs DNS to connect to remote hosts.
-The proxy uses the system DNS resolver by default.
+SegmentedProxy needs DNS to connect to remote hosts.
 
-DNS caching is disabled by default.
-Setting `dns_cache_size = 0` disables caching.
-You can enable caching with:
-```bash
-segproxy --dns-cache-size 512
-```
+By default, it uses your system DNS resolver and DNS caching is disabled.
 
-You can set a DNS server for plain DNS:
-```bash
-segproxy --dns-server 1.1.1.1
-```
-When you use `--dns-server`, the cache uses real DNS TTL values.
-The DNS port is 53 by default:
-```bash
-segproxy --dns-server 1.1.1.1 --dns-port 53
-```
-The DNS transport is `udp` by default.
-You can set `--dns-transport tcp` for TCP only.
-With `udp`, the proxy tries TCP if UDP fails or is cut short.
+Optional DNS features:
+- `--dns-cache-size <int>`: enable in-memory DNS cache (use `0` to disable)
+- `--dns-server <ip>`: use a specific DNS server (instead of system resolver)
+- `--dns-port <int>`: DNS server port (default: `53`)
+- `--dns-transport {udp,tcp}`: DNS transport (default: `udp`)
+
+When `udp` is used (default), the proxy will retry DNS over TCP if UDP fails
+or the UDP response is truncated.
+
+For full details and examples, see: `docs/DNS_RESOLUTION.md`.
 
 ## Limitations
 - HTTP/1.1 only
