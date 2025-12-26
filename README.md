@@ -6,6 +6,10 @@ It sits between your browser and the internet.
 It helps you see how rules and segmentation change traffic.
 It is not production software.
 
+## Documentation Site
+Docs are available on GitHub Pages:
+https://amirpooyan-r.github.io/segmented-proxy/
+
 ## What You Will Learn
 - What HTTP and HTTPS are
 - How a proxy works between a browser and a server
@@ -83,7 +87,7 @@ curl -k -x http://127.0.0.1:8080 https://example.com/
 - docs/PROJECT_STRUCTURE.md
 - docs/SEGMENTATION.md
 - docs/GLOSSARY.md
-- examples/EXPERIMENTS.md
+- docs/EXPERIMENTS.md
 
 ## Rules and Configuration (Short)
 Rules tell the proxy what to do with matching traffic.

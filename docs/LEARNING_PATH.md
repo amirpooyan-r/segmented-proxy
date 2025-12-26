@@ -1,16 +1,16 @@
 # Learning Path
 
 ## Start Here
-- Read README.md to learn the goal and how to run the proxy.
+- Read [Home](index.md) to learn the goal and how to run the proxy.
 - Run the proxy once, even before deep reading.
 
 ## Suggested Reading Order
-1. docs/HTTP_VS_HTTPS.md
-2. docs/GLOSSARY.md
-3. docs/HOW_A_PROXY_WORKS.md
-4. docs/PROJECT_STRUCTURE.md
-5. docs/SEGMENTATION.md
-6. examples/EXPERIMENTS.md
+1. [HTTP vs HTTPS](HTTP_VS_HTTPS.md)
+2. [Glossary](GLOSSARY.md)
+3. [How a proxy works](HOW_A_PROXY_WORKS.md)
+4. [Project structure](PROJECT_STRUCTURE.md)
+5. [Segmentation](SEGMENTATION.md)
+6. [Experiments](EXPERIMENTS.md)
 
 ## What to Focus On First
 - The basic flow: browser -> proxy -> server.

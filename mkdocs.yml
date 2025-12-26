@@ -1,0 +1,20 @@
+site_name: SegmentedProxy
+repo_name: amirpooyan-r/segmented-proxy
+repo_url: https://github.com/amirpooyan-r/segmented-proxy
+
+docs_dir: docs
+
+theme:
+  name: material
+
+nav:
+  - Home: index.md
+  - Learning Path: LEARNING_PATH.md
+  - How a Proxy Works: HOW_A_PROXY_WORKS.md
+  - HTTP vs HTTPS: HTTP_VS_HTTPS.md
+  - Segmentation: SEGMENTATION.md
+  - DNS: DNS_RESOLUTION.md
+  - Project Structure: PROJECT_STRUCTURE.md
+  - Experiments: EXPERIMENTS.md
+  - Glossary: GLOSSARY.md
+  - Commands: commands.md
