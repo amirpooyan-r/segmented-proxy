@@ -19,6 +19,14 @@ class Settings:
     dns_transport: str = "udp"
     resolver: Resolver = field(default_factory=SystemResolver)
 
+    def __post_init__(self) -> None:
+        if self.dns_cache_size < 0:
+            raise ValueError("dns_cache_size must be >= 0")
+        if not 1 <= self.dns_port <= 65535:
+            raise ValueError("dns_port must be between 1 and 65535")
+        if self.dns_transport not in {"udp", "tcp"}:
+            raise ValueError("dns_transport must be udp or tcp")
+
     # Policy / segmentation rules
     allow_domains: tuple[str, ...] = field(default_factory=tuple)
     deny_domains: tuple[str, ...] = field(default_factory=tuple)

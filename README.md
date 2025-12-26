@@ -104,6 +104,8 @@ example.com=direct
 *.example.com=segment_upstream,action=upstream,upstream=127.0.0.1:3128
 *.example.com=segment_upstream,scheme=https,method=CONNECT,strategy=random,min=256,max=1024,delay=5
 ```
+If a rule is invalid, SegmentedProxy shows the line number.
+It also shows a short reason to help you fix it.
 
 ## DNS Resolution
 

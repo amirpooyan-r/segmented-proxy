@@ -47,6 +47,25 @@ def test_random_strategy_requires_min_max(text: str) -> None:
         parse_segment_rule(text)
 
 
+def test_rule_error_includes_line_and_strategy() -> None:
+    with pytest.raises(ValueError) as excinfo:
+        parse_segment_rule("*.a.com=segment_upstream,strategy=slow", line_no=3)
+    message = str(excinfo.value)
+    assert "line 3" in message
+    assert "strategy" in message
+
+
+def test_rule_error_includes_line_and_min_max() -> None:
+    with pytest.raises(ValueError) as excinfo:
+        parse_segment_rule(
+            "*.a.com=segment_upstream,strategy=random,min=10,max=2",
+            line_no=2,
+        )
+    message = str(excinfo.value)
+    assert "line 2" in message
+    assert "min" in message
+
+
 def test_match_policy_returns_first_match() -> None:
     rules = [
         parse_segment_rule("*.a.com=segment_upstream,chunk=512"),

@@ -106,7 +106,16 @@ def match_policy(
     return decision.policy
 
 
-def parse_segment_rule(text: str) -> SegmentationRule:
+def parse_segment_rule(text: str, *, line_no: int | None = None) -> SegmentationRule:
+    try:
+        return _parse_segment_rule_inner(text)
+    except ValueError as exc:
+        if line_no is None:
+            raise
+        raise ValueError(f"line {line_no}: {exc}") from exc
+
+
+def _parse_segment_rule_inner(text: str) -> SegmentationRule:
     """
     Format:
       "<host_glob>=<mode>[,strategy=none|fixed|random][,chunk=<int>]"
@@ -176,6 +185,7 @@ def parse_segment_rule(text: str) -> SegmentationRule:
             raise ValueError(f"unknown rule key '{k}'")
 
     _validate_policy(strategy, chunk_size, min_chunk, max_chunk)
+    _validate_delay(delay_ms)
     _validate_action(action, upstream)
 
     return SegmentationRule(
@@ -277,6 +287,11 @@ def _validate_policy(
             raise ValueError("random strategy requires min/max > 0")
         if min_chunk > max_chunk:
             raise ValueError("random strategy requires min <= max")
+
+
+def _validate_delay(delay_ms: int) -> None:
+    if delay_ms < 0:
+        raise ValueError("delay must be >= 0")
 
 
 def _parse_action(value: str) -> Action:

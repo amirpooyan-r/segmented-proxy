@@ -30,11 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="Max entries for DNS cache (0 disables caching).",
     )
-    parser.add_argument("--dns-port", type=int, default=53)
+    parser.add_argument("--dns-port", type=int, default=None)
     parser.add_argument(
         "--dns-transport",
         choices=["udp", "tcp"],
-        default="udp",
+        default=None,
         help="DNS transport for --dns-server (udp or tcp).",
     )
     parser.add_argument(
@@ -62,24 +62,36 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def make_settings(args: argparse.Namespace) -> Settings:
+def validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     if args.dns_cache_size < 0:
-        raise ValueError("dns-cache-size must be non-negative")
-    if not 1 <= args.dns_port <= 65535:
-        raise ValueError("dns-port must be between 1 and 65535")
+        parser.error("dns-cache-size must be >= 0")
+    if args.dns_port is not None and not 1 <= args.dns_port <= 65535:
+        parser.error("dns-port must be between 1 and 65535")
+    if args.dns_transport is not None and args.dns_transport not in {"udp", "tcp"}:
+        parser.error("dns-transport must be udp or tcp")
+    if args.dns_server is None:
+        if args.dns_port is not None:
+            parser.error("dns-port requires --dns-server")
+        if args.dns_transport is not None:
+            parser.error("dns-transport requires --dns-server")
+
+
+def make_settings(args: argparse.Namespace) -> Settings:
+    dns_port = args.dns_port if args.dns_port is not None else 53
+    dns_transport = args.dns_transport if args.dns_transport is not None else "udp"
 
     default_policy = SegmentationPolicy(
         mode=args.segmentation,
         chunk_size=args.segment_chunk_size,
         delay_ms=args.segment_delay_ms,
     )
-    rules = [parse_segment_rule(s) for s in args.segment_rule]
+    rules = [parse_segment_rule(s, line_no=idx) for idx, s in enumerate(args.segment_rule, 1)]
 
     if args.dns_server:
         resolver = PlainDnsResolver(
             args.dns_server,
-            dns_port=args.dns_port,
-            transport=args.dns_transport,
+            dns_port=dns_port,
+            transport=dns_transport,
         )
     else:
         resolver = SystemResolver()
@@ -94,8 +106,8 @@ def make_settings(args: argparse.Namespace) -> Settings:
         max_connections=args.max_connections,
         dns_cache_size=args.dns_cache_size,
         dns_server=args.dns_server,
-        dns_port=args.dns_port,
-        dns_transport=args.dns_transport,
+        dns_port=dns_port,
+        dns_transport=dns_transport,
         resolver=resolver,
         segmentation_default=default_policy,
         segmentation_rules=rules,
@@ -295,13 +307,14 @@ def handle_client_factory(settings: Settings):
 
 
 def main() -> None:
-    args = build_parser().parse_args()
+    parser = build_parser()
+    args = parser.parse_args()
+    validate_args(args, parser)
     if args.validate_rules:
         try:
             settings = make_settings(args)
         except ValueError as exc:
-            print(f"Rule error: {exc}")
-            raise SystemExit(2) from exc
+            parser.error(str(exc))
 
         print("Default policy:", format_default_policy(settings.segmentation_default))
         if settings.segmentation_rules:
@@ -312,19 +325,22 @@ def main() -> None:
             print("Rules: (none)")
         raise SystemExit(0)
 
-    settings = make_settings(args)
+    try:
+        settings = make_settings(args)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
-    if args.dns_server:
+    if settings.dns_server:
         logging.debug(
             "dns resolver=plain server=%s port=%d transport=%s",
-            args.dns_server,
-            args.dns_port,
-            args.dns_transport,
+            settings.dns_server,
+            settings.dns_port,
+            settings.dns_transport,
         )
     else:
         logging.debug("dns resolver=system")
