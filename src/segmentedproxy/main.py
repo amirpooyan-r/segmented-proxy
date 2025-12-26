@@ -9,7 +9,7 @@ from segmentedproxy.config import Settings
 from segmentedproxy.handlers import handle_connect_tunnel, handle_http_forward
 from segmentedproxy.http import parse_http_request, send_http_error, split_headers_and_body
 from segmentedproxy.net import recv_until
-from segmentedproxy.resolver import CachingResolver, SystemResolver
+from segmentedproxy.resolver import CachingResolver, PlainDnsResolver, SystemResolver
 from segmentedproxy.segmentation import SegmentationPolicy, SegmentationRule, parse_segment_rule
 from segmentedproxy.server import ThreadedTCPServer
 
@@ -29,6 +29,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         help="Max entries for DNS cache (0 disables caching).",
+    )
+    parser.add_argument(
+        "--dns-server",
+        help="Use a specific DNS server (UDP/53) for queries.",
     )
     parser.add_argument("--log-level", default="INFO")
 
@@ -62,7 +66,7 @@ def make_settings(args: argparse.Namespace) -> Settings:
     )
     rules = [parse_segment_rule(s) for s in args.segment_rule]
 
-    resolver = SystemResolver()
+    resolver = PlainDnsResolver(args.dns_server) if args.dns_server else SystemResolver()
     if args.dns_cache_size > 0:
         resolver = CachingResolver(resolver, max_entries=args.dns_cache_size)
 
@@ -73,6 +77,7 @@ def make_settings(args: argparse.Namespace) -> Settings:
         idle_timeout=args.idle_timeout,
         max_connections=args.max_connections,
         dns_cache_size=args.dns_cache_size,
+        dns_server=args.dns_server,
         resolver=resolver,
         segmentation_default=default_policy,
         segmentation_rules=rules,

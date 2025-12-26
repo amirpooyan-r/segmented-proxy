@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import socket
 
-from segmentedproxy.resolver import CACHE_TTL_SECONDS, CachingResolver
+from segmentedproxy.resolver import CachingResolver, ResolveResult
 
 
 class FakeResolver:
-    def __init__(self) -> None:
+    def __init__(self, ttl_seconds: int = 60) -> None:
         self.calls = 0
+        self._ttl_seconds = ttl_seconds
 
-    def resolve(self, host: str, port: int) -> list[tuple[int, str]]:
+    def resolve(self, host: str, port: int) -> ResolveResult:
         self.calls += 1
-        return [(socket.AF_INET, "203.0.113.10")]
+        return ResolveResult(
+            addrs=[(socket.AF_INET, "203.0.113.10")],
+            ttl_seconds=self._ttl_seconds,
+        )
 
 
 def test_cache_hit() -> None:
@@ -25,7 +29,7 @@ def test_cache_hit() -> None:
 
 
 def test_cache_expiry(monkeypatch) -> None:
-    fake = FakeResolver()
+    fake = FakeResolver(ttl_seconds=10)
     resolver = CachingResolver(fake, max_entries=2)
     now = 0.0
 
@@ -35,7 +39,7 @@ def test_cache_expiry(monkeypatch) -> None:
     monkeypatch.setattr("segmentedproxy.resolver.time.monotonic", fake_monotonic)
 
     resolver.resolve("example.com", 80)
-    now += CACHE_TTL_SECONDS + 1
+    now += 11
     resolver.resolve("example.com", 80)
 
     assert fake.calls == 2

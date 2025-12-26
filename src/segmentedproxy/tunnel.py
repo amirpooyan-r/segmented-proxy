@@ -324,7 +324,7 @@ def open_upstream(
     resolver: Resolver,
 ) -> socket.socket:
     last_error: OSError | None = None
-    addrs = resolver.resolve(host, port)
+    addrs = resolver.resolve(host, port).addrs
 
     for family, ip in addrs:
         sock = socket.socket(family, socket.SOCK_STREAM)

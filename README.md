@@ -105,13 +105,23 @@ example.com=direct
 *.example.com=segment_upstream,scheme=https,method=CONNECT,strategy=random,min=256,max=1024,delay=5
 ```
 
-## DNS Resolution
-The proxy still needs DNS to connect to upstream hosts.
-By default it uses your system resolver.
-There is an optional in-memory DNS cache to reduce repeated lookups.
-Set `--dns-cache-size` to a positive number to enable it.
-Use size `0` to disable caching.
-The cache uses a fixed TTL for now; later steps will use real DNS TTLs.
+## DNS Resolution and Caching
+
+The proxy still needs DNS to connect to remote hosts.
+The proxy uses the system DNS resolver by default.
+
+DNS caching is disabled by default.
+Setting `dns_cache_size = 0` disables caching.
+You can enable caching with:
+```bash
+segproxy --dns-cache-size 512
+```
+
+You can set a DNS server for plain DNS over UDP/53:
+```bash
+segproxy --dns-server 1.1.1.1
+```
+When you use `--dns-server`, the cache uses real DNS TTL values.
 
 ## Limitations
 - HTTP/1.1 only

@@ -14,6 +14,7 @@ class Settings:
     idle_timeout: float = 60.0
     max_connections: int = 200
     dns_cache_size: int = 0
+    dns_server: str | None = None
     resolver: Resolver = field(default_factory=SystemResolver)
 
     # Policy / segmentation rules
