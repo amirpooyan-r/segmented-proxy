@@ -15,6 +15,8 @@ class Settings:
     max_connections: int = 200
     dns_cache_size: int = 0
     dns_server: str | None = None
+    dns_port: int = 53
+    dns_transport: str = "udp"
     resolver: Resolver = field(default_factory=SystemResolver)
 
     # Policy / segmentation rules

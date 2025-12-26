@@ -117,11 +117,18 @@ You can enable caching with:
 segproxy --dns-cache-size 512
 ```
 
-You can set a DNS server for plain DNS over UDP/53:
+You can set a DNS server for plain DNS:
 ```bash
 segproxy --dns-server 1.1.1.1
 ```
 When you use `--dns-server`, the cache uses real DNS TTL values.
+The DNS port is 53 by default:
+```bash
+segproxy --dns-server 1.1.1.1 --dns-port 53
+```
+The DNS transport is `udp` by default.
+You can set `--dns-transport tcp` for TCP only.
+With `udp`, the proxy tries TCP if UDP fails or is cut short.
 
 ## Limitations
 - HTTP/1.1 only

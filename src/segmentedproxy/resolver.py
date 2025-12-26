@@ -49,8 +49,21 @@ class SystemResolver:
 
 
 class PlainDnsResolver:
-    def __init__(self, server_ip: str) -> None:
+    def __init__(
+        self,
+        server_ip: str,
+        dns_port: int = 53,
+        transport: str = "udp",
+        timeout_seconds: float = DNS_TIMEOUT_SECONDS,
+    ) -> None:
+        if not 1 <= dns_port <= 65535:
+            raise ValueError("dns_port must be between 1 and 65535")
+        if transport not in {"udp", "tcp"}:
+            raise ValueError("transport must be 'udp' or 'tcp'")
         self._server_ip = server_ip
+        self._dns_port = dns_port
+        self._transport = transport
+        self._timeout_seconds = timeout_seconds
         self._family = socket.AF_INET6 if ":" in server_ip else socket.AF_INET
 
     def resolve(self, host: str, port: int) -> ResolveResult:
@@ -59,7 +72,7 @@ class PlainDnsResolver:
         ttl_values: list[int] = []
 
         for qtype, family in ((A_RECORD, socket.AF_INET), (AAAA_RECORD, socket.AF_INET6)):
-            response_addrs, ttl_seconds = self._query(host, qtype)
+            response_addrs, ttl_seconds = self._resolve_type(host, qtype)
             if response_addrs:
                 ttl_values.append(ttl_seconds)
             for addr in response_addrs:
@@ -75,22 +88,67 @@ class PlainDnsResolver:
         ttl_min = min(ttl_values) if ttl_values else 0
         return ResolveResult(addrs=addrs, ttl_seconds=ttl_min)
 
-    def _query(self, host: str, qtype: int) -> tuple[list[str], int]:
+    def _resolve_type(self, host: str, qtype: int) -> tuple[list[str], int]:
         txid = random.getrandbits(16)
         query = self._build_query(host, qtype, txid)
 
-        with socket.socket(self._family, socket.SOCK_DGRAM) as sock:
-            sock.settimeout(DNS_TIMEOUT_SECONDS)
-            sock.sendto(query, (self._server_ip, 53))
-            data, _addr = sock.recvfrom(4096)
+        if self._transport == "tcp":
+            data = self._query_tcp(query, self._dns_port)
+            self._ensure_txid(txid, data)
+            addrs, ttl_seconds, _truncated = self._parse_response(data, qtype)
+            return addrs, ttl_seconds
 
-        if len(data) < 12:
+        try:
+            data = self._query_udp(query, self._dns_port)
+            self._ensure_txid(txid, data)
+            addrs, ttl_seconds, truncated = self._parse_response(data, qtype)
+            if truncated:
+                raise ValueError("DNS response truncated")
+            return addrs, ttl_seconds
+        except (OSError, TimeoutError, ValueError):
+            data = self._query_tcp(query, self._dns_port)
+            self._ensure_txid(txid, data)
+            addrs, ttl_seconds, _truncated = self._parse_response(data, qtype)
+            return addrs, ttl_seconds
+
+    def _query_udp(self, query: bytes, port: int) -> bytes:
+        with socket.socket(self._family, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(self._timeout_seconds)
+            sock.sendto(query, (self._server_ip, port))
+            data, _addr = sock.recvfrom(4096)
+            return data
+
+    def _query_tcp(self, query: bytes, port: int) -> bytes:
+        payload = struct.pack("!H", len(query)) + query
+        with socket.socket(self._family, socket.SOCK_STREAM) as sock:
+            sock.settimeout(self._timeout_seconds)
+            sock.connect((self._server_ip, port))
+            sock.sendall(payload)
+            length_bytes = self._recv_exact(sock, 2)
+            if len(length_bytes) != 2:
+                raise ValueError("DNS TCP response length missing")
+            length = struct.unpack("!H", length_bytes)[0]
+            return self._recv_exact(sock, length)
+
+    @staticmethod
+    def _recv_exact(sock: socket.socket, size: int) -> bytes:
+        out = bytearray()
+        while len(out) < size:
+            chunk = sock.recv(size - len(out))
+            if not chunk:
+                break
+            out.extend(chunk)
+        if len(out) != size:
+            raise ValueError("DNS TCP response truncated")
+        return bytes(out)
+
+    @staticmethod
+    def _ensure_txid(txid: int, data: bytes) -> None:
+        if len(data) < 2:
             raise ValueError("DNS response too short")
         resp_id = struct.unpack("!H", data[:2])[0]
         if resp_id != txid:
             raise ValueError("DNS response transaction ID mismatch")
-
-        return self._parse_response(data, qtype)
 
     @staticmethod
     def _build_query(host: str, qtype: int, txid: int) -> bytes:
@@ -113,11 +171,12 @@ class PlainDnsResolver:
         return bytes(out)
 
     @staticmethod
-    def _parse_response(data: bytes, qtype: int) -> tuple[list[str], int]:
+    def _parse_response(data: bytes, qtype: int) -> tuple[list[str], int, bool]:
         if len(data) < 12:
             raise ValueError("DNS response too short")
-        _txid, _flags, qdcount, ancount, _nscount, _arcount = struct.unpack("!HHHHHH", data[:12])
+        _txid, flags, qdcount, ancount, _nscount, _arcount = struct.unpack("!HHHHHH", data[:12])
         offset = 12
+        truncated = bool(flags & 0x0200)
 
         for _ in range(qdcount):
             _name, offset = PlainDnsResolver._read_name(data, offset)
@@ -150,7 +209,7 @@ class PlainDnsResolver:
 
             ttl_min = ttl if ttl_min is None else min(ttl_min, ttl)
 
-        return addrs, ttl_min or 0
+        return addrs, ttl_min or 0, truncated
 
     @staticmethod
     def _read_name(data: bytes, offset: int) -> tuple[str, int]:

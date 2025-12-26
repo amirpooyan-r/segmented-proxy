@@ -30,6 +30,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="Max entries for DNS cache (0 disables caching).",
     )
+    parser.add_argument("--dns-port", type=int, default=53)
+    parser.add_argument(
+        "--dns-transport",
+        choices=["udp", "tcp"],
+        default="udp",
+        help="DNS transport for --dns-server (udp or tcp).",
+    )
     parser.add_argument(
         "--dns-server",
         help="Use a specific DNS server (UDP/53) for queries.",
@@ -58,6 +65,8 @@ def build_parser() -> argparse.ArgumentParser:
 def make_settings(args: argparse.Namespace) -> Settings:
     if args.dns_cache_size < 0:
         raise ValueError("dns-cache-size must be non-negative")
+    if not 1 <= args.dns_port <= 65535:
+        raise ValueError("dns-port must be between 1 and 65535")
 
     default_policy = SegmentationPolicy(
         mode=args.segmentation,
@@ -66,7 +75,14 @@ def make_settings(args: argparse.Namespace) -> Settings:
     )
     rules = [parse_segment_rule(s) for s in args.segment_rule]
 
-    resolver = PlainDnsResolver(args.dns_server) if args.dns_server else SystemResolver()
+    if args.dns_server:
+        resolver = PlainDnsResolver(
+            args.dns_server,
+            dns_port=args.dns_port,
+            transport=args.dns_transport,
+        )
+    else:
+        resolver = SystemResolver()
     if args.dns_cache_size > 0:
         resolver = CachingResolver(resolver, max_entries=args.dns_cache_size)
 
@@ -78,6 +94,8 @@ def make_settings(args: argparse.Namespace) -> Settings:
         max_connections=args.max_connections,
         dns_cache_size=args.dns_cache_size,
         dns_server=args.dns_server,
+        dns_port=args.dns_port,
+        dns_transport=args.dns_transport,
         resolver=resolver,
         segmentation_default=default_policy,
         segmentation_rules=rules,
