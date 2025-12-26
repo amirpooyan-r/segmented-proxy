@@ -32,7 +32,7 @@ You can set a DNS server IP:
 segproxy --dns-server 1.1.1.1
 ```
 
-When you set `--dns-server`, real TTL values are used.
+When you set a custom DNS server, real TTL values are used.
 
 ## DNS port
 
@@ -44,8 +44,8 @@ segproxy --dns-port 5353
 
 ## DNS transport
 
-The transport is `udp` by default.
-You can choose `udp` or `tcp`:
+The transport is UDP by default.
+You can choose UDP or TCP:
 ```bash
 segproxy --dns-transport udp
 ```
@@ -95,13 +95,18 @@ segproxy --dns-server 1.1.1.1 --dns-transport tcp
 - DNS failures stop outbound connections.
 - Try switching between UDP and TCP.
 - Check that the server and port are reachable.
+- DNS logs are available in DEBUG level.
+- Run with debug logging enabled to see cache and fallback behavior.
+```bash
+segproxy --log-level DEBUG
+```
 
 ## Summary
 
 - The system resolver is the default.
 - DNS cache is off unless you enable it.
-- `--dns-cache-size 0` turns the cache off.
-- `--dns-server` uses plain DNS and real TTL values.
-- `--dns-port` changes the DNS port.
-- `--dns-transport` selects UDP or TCP.
+- A cache size of 0 turns the cache off.
+- A custom DNS server uses plain DNS and real TTL values.
+- The DNS port can be changed when needed.
+- The DNS transport can be UDP or TCP.
 - UDP can retry with TCP on failure or short replies.

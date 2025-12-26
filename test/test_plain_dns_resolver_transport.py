@@ -3,6 +3,8 @@ from __future__ import annotations
 import socket
 import struct
 
+import pytest
+
 from segmentedproxy.resolver import A_RECORD, PlainDnsResolver
 
 
@@ -129,3 +131,41 @@ def test_dns_port_passed_to_queries() -> None:
 
     assert result.addrs
     assert seen_ports == [5353, 5353]
+
+
+def test_udp_tcp_failure_message() -> None:
+    resolver = PlainDnsResolver("1.1.1.1", dns_port=5353)
+
+    def fake_udp(_query: bytes, _port: int) -> bytes:
+        raise TimeoutError("udp timeout")
+
+    def fake_tcp(_query: bytes, _port: int) -> bytes:
+        raise OSError("tcp fail")
+
+    resolver._query_udp = fake_udp  # type: ignore[assignment]
+    resolver._query_tcp = fake_tcp  # type: ignore[assignment]
+
+    with pytest.raises(ValueError) as excinfo:
+        resolver.resolve("example.com", 443)
+
+    message = str(excinfo.value)
+    assert "server=1.1.1.1" in message
+    assert "dns_port=5353" in message
+    assert "transport=udp->tcp" in message
+    assert "host=example.com" in message
+    assert "port=443" in message
+
+
+def test_tcp_failure_message() -> None:
+    resolver = PlainDnsResolver("1.1.1.1", transport="tcp")
+
+    def fake_tcp(_query: bytes, _port: int) -> bytes:
+        raise OSError("tcp fail")
+
+    resolver._query_tcp = fake_tcp  # type: ignore[assignment]
+
+    with pytest.raises(ValueError) as excinfo:
+        resolver.resolve("example.com", 443)
+
+    message = str(excinfo.value)
+    assert "transport=tcp" in message

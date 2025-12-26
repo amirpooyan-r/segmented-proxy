@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import random
 import socket
 import struct
@@ -16,6 +17,8 @@ DNS_TIMEOUT_SECONDS = 2.0
 
 A_RECORD = 1
 AAAA_RECORD = 28
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -73,7 +76,7 @@ class PlainDnsResolver:
         ttl_values: list[int] = []
 
         for qtype, family in ((A_RECORD, socket.AF_INET), (AAAA_RECORD, socket.AF_INET6)):
-            response_addrs, ttl_seconds = self._resolve_type(host, qtype)
+            response_addrs, ttl_seconds = self._resolve_type(host, port, qtype)
             if response_addrs:
                 ttl_values.append(ttl_seconds)
             for addr in response_addrs:
@@ -89,15 +92,20 @@ class PlainDnsResolver:
         ttl_min = min(ttl_values) if ttl_values else 0
         return ResolveResult(addrs=addrs, ttl_seconds=ttl_min)
 
-    def _resolve_type(self, host: str, qtype: int) -> tuple[list[str], int]:
+    def _resolve_type(self, host: str, port: int, qtype: int) -> tuple[list[str], int]:
         txid = random.getrandbits(16)
         query = self._build_query(host, qtype, txid)
 
         if self._transport == "tcp":
-            data = self._query_tcp(query, self._dns_port)
-            self._ensure_txid(txid, data)
-            addrs, ttl_seconds, _truncated = self._parse_response(data, qtype)
-            return addrs, ttl_seconds
+            try:
+                data = self._query_tcp(query, self._dns_port)
+                self._ensure_txid(txid, data)
+                addrs, ttl_seconds, _truncated = self._parse_response(data, qtype)
+                return addrs, ttl_seconds
+            except (OSError, TimeoutError, ValueError) as exc:
+                raise ValueError(
+                    self._format_error(host, port, "tcp", exc),
+                ) from exc
 
         try:
             data = self._query_udp(query, self._dns_port)
@@ -106,11 +114,16 @@ class PlainDnsResolver:
             if truncated:
                 raise ValueError("DNS response truncated")
             return addrs, ttl_seconds
-        except (OSError, TimeoutError, ValueError):
-            data = self._query_tcp(query, self._dns_port)
-            self._ensure_txid(txid, data)
-            addrs, ttl_seconds, _truncated = self._parse_response(data, qtype)
-            return addrs, ttl_seconds
+        except (OSError, TimeoutError, ValueError) as udp_exc:
+            try:
+                data = self._query_tcp(query, self._dns_port)
+                self._ensure_txid(txid, data)
+                addrs, ttl_seconds, _truncated = self._parse_response(data, qtype)
+                return addrs, ttl_seconds
+            except (OSError, TimeoutError, ValueError) as tcp_exc:
+                raise ValueError(
+                    self._format_error(host, port, "udp->tcp", tcp_exc, udp_exc),
+                ) from tcp_exc
 
     def _query_udp(self, query: bytes, port: int) -> bytes:
         with socket.socket(self._family, socket.SOCK_DGRAM) as sock:
@@ -212,6 +225,23 @@ class PlainDnsResolver:
 
         return addrs, ttl_min or 0, truncated
 
+    def _format_error(
+        self,
+        host: str,
+        port: int,
+        mode: str,
+        exc: Exception,
+        udp_exc: Exception | None = None,
+    ) -> str:
+        details = f"{exc}"
+        if udp_exc is not None:
+            details = f"{udp_exc}; {exc}"
+        return (
+            "DNS resolve failed "
+            f"host={host} port={port} server={self._server_ip} "
+            f"dns_port={self._dns_port} transport={mode} error={details}"
+        )
+
     @staticmethod
     def _read_name(data: bytes, offset: int) -> tuple[str, int]:
         labels: list[str] = []
@@ -258,6 +288,8 @@ class CachingResolver:
             tuple[str, int],
             tuple[float, tuple[tuple[int, str], ...]],
         ] = OrderedDict()
+        if max_entries <= 0:
+            logger.debug("dns cache disabled (size=0)")
 
     def resolve(self, host: str, port: int) -> ResolveResult:
         if self._max_entries <= 0:
@@ -272,10 +304,15 @@ class CachingResolver:
                 expires_at, addrs = entry
                 if now < expires_at:
                     self._cache.move_to_end(key, last=True)
+                    logger.debug("dns cache hit host=%s port=%d", host, port)
                     return ResolveResult(addrs=list(addrs), ttl_seconds=int(expires_at - now))
                 del self._cache[key]
+                logger.debug("dns cache expired host=%s port=%d", host, port)
+            else:
+                logger.debug("dns cache miss host=%s port=%d", host, port)
 
         result = self._inner.resolve(host, port)
+        logger.debug("dns resolved host=%s port=%d addrs=%d", host, port, len(result.addrs))
         ttl_seconds = result.ttl_seconds
         if ttl_seconds > 0:
             ttl_seconds = max(MIN_TTL, min(ttl_seconds, MAX_TTL))
@@ -285,7 +322,12 @@ class CachingResolver:
 
         with self._lock:
             if key not in self._cache and len(self._cache) >= self._max_entries:
-                self._cache.popitem(last=False)
+                evicted_key, _ = self._cache.popitem(last=False)
+                logger.debug(
+                    "dns cache evict host=%s port=%d",
+                    evicted_key[0],
+                    evicted_key[1],
+                )
             self._cache[key] = (expires_at, tuple(result.addrs))
 
         return result

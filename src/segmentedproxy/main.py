@@ -319,6 +319,16 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
+    if args.dns_server:
+        logging.debug(
+            "dns resolver=plain server=%s port=%d transport=%s",
+            args.dns_server,
+            args.dns_port,
+            args.dns_transport,
+        )
+    else:
+        logging.debug("dns resolver=system")
+
     logging.info("Starting SegmentedProxy on %s:%d", settings.listen_host, settings.listen_port)
 
     server = ThreadedTCPServer(
