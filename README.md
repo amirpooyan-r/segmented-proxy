@@ -1,5 +1,7 @@
 # SegmentedProxy
 
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://amirpooyan-r.github.io/segmented-proxy/)
+
 ## Overview
 SegmentedProxy is a small HTTP/HTTPS proxy made for learning.
 It sits between your browser and the internet.
@@ -81,13 +83,9 @@ curl -k -x http://127.0.0.1:8080 https://example.com/
 ```
 
 ## Learning Path
-- docs/LEARNING_PATH.md
-- docs/HTTP_VS_HTTPS.md
-- docs/HOW_A_PROXY_WORKS.md
-- docs/PROJECT_STRUCTURE.md
-- docs/SEGMENTATION.md
-- docs/GLOSSARY.md
-- docs/EXPERIMENTS.md
+See the documentation site for a guided learning path:
+https://amirpooyan-r.github.io/segmented-proxy/
+
 
 ## Rules and Configuration (Short)
 Rules tell the proxy what to do with matching traffic.
