@@ -10,6 +10,14 @@ segproxy \
   --segment-rule "*.example.com=segment_upstream,scheme=https,method=CONNECT,strategy=random,min=256,max=1024,delay=5"
 ```
 
+## Rules file
+You can load rules from a text file with one rule per line.
+Blank lines and lines starting with `#` are ignored.
+
+```bash
+segproxy --rules-file examples/rules.txt
+```
+
 ## Curl through the proxy
 ```bash
 curl -x http://127.0.0.1:8080 http://example.com/

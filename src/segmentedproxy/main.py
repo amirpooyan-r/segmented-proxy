@@ -54,12 +54,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="Example: '*.example.com=segment_upstream,chunk=512,delay=5'",
     )
     parser.add_argument(
+        "--rules-file",
+        action="append",
+        default=[],
+        help="Load rules from a text file (one rule per non-comment line).",
+    )
+    parser.add_argument(
         "--validate-rules",
         action="store_true",
         help="Parse and print rule summary, then exit.",
     )
 
     return parser
+
+
+def _load_rules_from_file(path: str) -> list[SegmentationRule]:
+    rules: list[SegmentationRule] = []
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line_no, line in enumerate(handle, 1):
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                try:
+                    rules.append(parse_segment_rule(stripped, line_no=line_no))
+                except ValueError as exc:
+                    message = str(exc)
+                    prefix = f"line {line_no}: "
+                    if message.startswith(prefix):
+                        message = message[len(prefix) :]
+                    raise ValueError(f"{path}:{line_no} {message}") from exc
+    except OSError as exc:
+        reason = exc.strerror or "unable to read file"
+        raise ValueError(f"{path}: cannot open file ({reason})") from exc
+    return rules
 
 
 def validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
@@ -85,7 +113,10 @@ def make_settings(args: argparse.Namespace) -> Settings:
         chunk_size=args.segment_chunk_size,
         delay_ms=args.segment_delay_ms,
     )
-    rules = [parse_segment_rule(s, line_no=idx) for idx, s in enumerate(args.segment_rule, 1)]
+    rules: list[SegmentationRule] = []
+    for rules_file in args.rules_file:
+        rules.extend(_load_rules_from_file(rules_file))
+    rules.extend(parse_segment_rule(s, line_no=idx) for idx, s in enumerate(args.segment_rule, 1))
 
     if args.dns_server:
         resolver = PlainDnsResolver(

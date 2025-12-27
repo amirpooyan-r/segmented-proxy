@@ -125,7 +125,9 @@ Segmentation can be:
 - random (chunk size changes)
 
 Example rules:
-See examples/rules.txt for a ready-to-copy rules reference (not a file flag).
+You can pass rules with repeated `--segment-rule` or load a file with `--rules-file`.
+Comment lines start with `#` and blank lines are ignored.
+See `examples/rules.txt` for a sample rules file you can use with `--rules-file` or copy/paste.
 ```
 example.com=direct
 *.example.com=segment_upstream,action=upstream,upstream=127.0.0.1:3128

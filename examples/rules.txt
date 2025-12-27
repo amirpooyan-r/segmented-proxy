@@ -1,5 +1,6 @@
 # Sample rules for SegmentedProxy.
-# Pass rules by repeating --segment-rule "<rule>" (one flag per non-comment line).
+# Load this file with: segproxy --rules-file examples/rules.txt
+# Or pass rules by repeating --segment-rule "<rule>" (one flag per non-comment line).
 # Lines starting with "#" are comments.
 # Bash: segproxy ... $(grep -vE '^\s*#|^\s*$' examples/rules.txt | sed 's/^/--segment-rule /' | tr '\n' ' ')
 # PowerShell:
