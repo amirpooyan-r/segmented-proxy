@@ -27,6 +27,44 @@ class ResolveResult:
     ttl_seconds: int
 
 
+@dataclass(frozen=True)
+class DnsTrace:
+    dns: str
+    cache: str
+    transport: str
+    fallback: int
+
+
+class _DnsTraceContext:
+    def __init__(self) -> None:
+        self._local = threading.local()
+
+    def set(self, trace: DnsTrace) -> None:
+        self._local.trace = trace
+
+    def get(self) -> DnsTrace | None:
+        return getattr(self._local, "trace", None)
+
+    def clear(self) -> None:
+        if hasattr(self._local, "trace"):
+            delattr(self._local, "trace")
+
+
+_dns_trace_ctx = _DnsTraceContext()
+
+
+def set_dns_trace(trace: DnsTrace) -> None:
+    _dns_trace_ctx.set(trace)
+
+
+def get_dns_trace() -> DnsTrace | None:
+    return _dns_trace_ctx.get()
+
+
+def clear_dns_trace() -> None:
+    _dns_trace_ctx.clear()
+
+
 class Resolver(Protocol):
     def resolve(self, host: str, port: int) -> ResolveResult:
         """
@@ -49,6 +87,7 @@ class SystemResolver:
             seen.add(key)
             addrs.append(key)
 
+        set_dns_trace(DnsTrace(dns="system", cache="miss", transport="udp", fallback=0))
         return ResolveResult(addrs=addrs, ttl_seconds=FIXED_SYSTEM_TTL)
 
 
@@ -74,9 +113,11 @@ class PlainDnsResolver:
         addrs: list[tuple[int, str]] = []
         seen: set[tuple[int, str]] = set()
         ttl_values: list[int] = []
+        transport_used = self._transport
+        fallback_used = 0
 
         for qtype, family in ((A_RECORD, socket.AF_INET), (AAAA_RECORD, socket.AF_INET6)):
-            response_addrs, ttl_seconds = self._resolve_type(host, port, qtype)
+            response_addrs, ttl_seconds, transport, fallback = self._resolve_type(host, port, qtype)
             if response_addrs:
                 ttl_values.append(ttl_seconds)
             for addr in response_addrs:
@@ -85,14 +126,26 @@ class PlainDnsResolver:
                     continue
                 seen.add(key)
                 addrs.append(key)
+            if transport == "tcp":
+                transport_used = "tcp"
+            if fallback:
+                fallback_used = 1
 
         if not addrs:
             raise ValueError(f"No DNS answers for {host}")
 
         ttl_min = min(ttl_values) if ttl_values else 0
+        set_dns_trace(
+            DnsTrace(
+                dns="custom",
+                cache="miss",
+                transport=transport_used,
+                fallback=fallback_used,
+            )
+        )
         return ResolveResult(addrs=addrs, ttl_seconds=ttl_min)
 
-    def _resolve_type(self, host: str, port: int, qtype: int) -> tuple[list[str], int]:
+    def _resolve_type(self, host: str, port: int, qtype: int) -> tuple[list[str], int, str, int]:
         txid = random.getrandbits(16)
         query = self._build_query(host, qtype, txid)
 
@@ -101,7 +154,7 @@ class PlainDnsResolver:
                 data = self._query_tcp(query, self._dns_port)
                 self._ensure_txid(txid, data)
                 addrs, ttl_seconds, _truncated = self._parse_response(data, qtype)
-                return addrs, ttl_seconds
+                return addrs, ttl_seconds, "tcp", 0
             except (OSError, TimeoutError, ValueError) as exc:
                 raise ValueError(
                     self._format_error(host, port, "tcp", exc),
@@ -113,13 +166,13 @@ class PlainDnsResolver:
             addrs, ttl_seconds, truncated = self._parse_response(data, qtype)
             if truncated:
                 raise ValueError("DNS response truncated")
-            return addrs, ttl_seconds
+            return addrs, ttl_seconds, "udp", 0
         except (OSError, TimeoutError, ValueError) as udp_exc:
             try:
                 data = self._query_tcp(query, self._dns_port)
                 self._ensure_txid(txid, data)
                 addrs, ttl_seconds, _truncated = self._parse_response(data, qtype)
-                return addrs, ttl_seconds
+                return addrs, ttl_seconds, "tcp", 1
             except (OSError, TimeoutError, ValueError) as tcp_exc:
                 raise ValueError(
                     self._format_error(host, port, "udp->tcp", tcp_exc, udp_exc),
@@ -305,6 +358,14 @@ class CachingResolver:
                 if now < expires_at:
                     self._cache.move_to_end(key, last=True)
                     logger.debug("dns cache hit host=%s port=%d", host, port)
+                    trace = _base_dns_trace(self._inner)
+                    trace = DnsTrace(
+                        dns=trace.dns,
+                        cache="hit",
+                        transport=trace.transport,
+                        fallback=0,
+                    )
+                    set_dns_trace(trace)
                     return ResolveResult(addrs=list(addrs), ttl_seconds=int(expires_at - now))
                 del self._cache[key]
                 logger.debug("dns cache expired host=%s port=%d", host, port)
@@ -312,6 +373,17 @@ class CachingResolver:
                 logger.debug("dns cache miss host=%s port=%d", host, port)
 
         result = self._inner.resolve(host, port)
+        trace = get_dns_trace()
+        if trace is None:
+            trace = _base_dns_trace(self._inner)
+        set_dns_trace(
+            DnsTrace(
+                dns=trace.dns,
+                cache="miss",
+                transport=trace.transport,
+                fallback=trace.fallback,
+            )
+        )
         logger.debug("dns resolved host=%s port=%d addrs=%d", host, port, len(result.addrs))
         ttl_seconds = result.ttl_seconds
         if ttl_seconds > 0:
@@ -331,3 +403,13 @@ class CachingResolver:
             self._cache[key] = (expires_at, tuple(result.addrs))
 
         return result
+
+
+def _base_dns_trace(resolver: Resolver) -> DnsTrace:
+    if isinstance(resolver, CachingResolver):
+        return _base_dns_trace(resolver._inner)
+    if isinstance(resolver, PlainDnsResolver):
+        return DnsTrace(dns="custom", cache="miss", transport=resolver._transport, fallback=0)
+    if isinstance(resolver, SystemResolver):
+        return DnsTrace(dns="system", cache="miss", transport="udp", fallback=0)
+    return DnsTrace(dns="system", cache="miss", transport="udp", fallback=0)

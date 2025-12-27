@@ -8,6 +8,7 @@ import time
 from segmentedproxy.config import Settings
 from segmentedproxy.http import HttpRequest, send_http_error, split_absolute_http_url
 from segmentedproxy.policy import check_host_policy
+from segmentedproxy.resolver import clear_dns_trace, get_dns_trace
 from segmentedproxy.segmentation import RequestContext, SegmentationEngine, SegmentationPolicy
 from segmentedproxy.tunnel import (
     open_upstream,
@@ -22,241 +23,352 @@ def handle_http_forward(
     req: HttpRequest,
     body: bytes,
     settings: Settings,
+    *,
+    request_id: str | None = None,
 ) -> None:
-    try:
-        host, port, path = split_absolute_http_url(req.target)
-    except ValueError as e:
-        send_http_error(client_sock, 400, str(e))
-        return
-
-    headers: dict[str, str] = dict(req.headers)
-
-    # Remove hop-by-hop headers (RFC 7230)
-    hop_by_hop = {
-        "connection",
-        "proxy-connection",
-        "keep-alive",
-        "transfer-encoding",
-        "te",
-        "trailer",
-        "upgrade",
-        "proxy-authenticate",
-        "proxy-authorization",
-    }
-    for h in hop_by_hop:
-        headers.pop(h, None)
-
-    # If client sent "Connection: x,y", those named headers are hop-by-hop too
-    conn_hdr = req.headers.get("connection")
-    if conn_hdr:
-        for token in conn_hdr.split(","):
-            headers.pop(token.strip().lower(), None)
-
-    # --- IMPORTANT: chunked + Content-Length cannot coexist ---
-    # We removed "transfer-encoding" from forwarded headers because it's hop-by-hop.
-    # But if the request body we are sending is chunked bytes, we must also ensure
-    # we don't send Content-Length to the upstream.
-    te = req.headers.get("transfer-encoding")
-    if te and te.lower() == "chunked":
-        headers.pop("content-length", None)
-
-    headers["host"] = host if port == 80 else f"{host}:{port}"
-    headers["connection"] = "close"
-
-    policy_decision = check_host_policy(
-        host,
-        allow_domains=settings.allow_domains,
-        deny_domains=settings.deny_domains,
-        deny_private=settings.deny_private,
-    )
-    if not policy_decision.allowed:
-        send_http_error(client_sock, 403, f"Forbidden: {policy_decision.reason}")
-        return
-
-    engine = SegmentationEngine(settings.segmentation_rules, settings.segmentation_default)
-    ctx = RequestContext(
-        method=req.method,
-        scheme="http",
-        host=host,
-        port=port,
-        path=path,
-    )
-    decision = engine.decide(ctx)
-    policy = decision.policy
-    matched = decision.matched_rule.host_glob if decision.matched_rule else "<default>"
-
-    logging.debug(
-        "HTTP forward %s:%d %s (rule=%s score=%d action=%s mode=%s strategy=%s)",
-        host,
-        port,
-        path,
-        matched,
-        decision.score,
-        decision.action,
-        policy.mode,
-        policy.strategy,
-    )
-    if decision.explain:
-        logging.debug("HTTP forward decision: %s", decision.explain)
-
-    if decision.action == "block":
-        reason = decision.reason or "Blocked by segmentation rule"
-        send_http_error(client_sock, 403, f"Forbidden: {reason}")
-        return
+    start_time = time.monotonic()
+    clear_dns_trace()
+    host = "-"
+    port = 0
+    method = req.method
+    scheme = "http"
+    action = "direct"
+    policy = settings.segmentation_default
+    bytes_up: int | None = None
+    bytes_down: int | None = None
 
     try:
-        if decision.action == "upstream":
-            if decision.upstream is None:
-                send_http_error(client_sock, 502, "Upstream proxy not configured")
-                return
-            upstream_host, upstream_port = decision.upstream
-            target = _build_absolute_url(host, port, path)
-            request_line = f"{req.method} {target} {req.version}\r\n"
-            upstream_addr = (upstream_host, upstream_port)
-        else:
-            request_line = f"{req.method} {path} {req.version}\r\n"
-            upstream_addr = (host, port)
+        try:
+            host, port, path = split_absolute_http_url(req.target)
+        except ValueError as e:
+            send_http_error(client_sock, 400, str(e))
+            return
 
-        header_blob = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
-        forward = (request_line + header_blob + "\r\n").encode("iso-8859-1")
+        headers: dict[str, str] = dict(req.headers)
 
-        with open_upstream(
-            upstream_addr[0],
-            upstream_addr[1],
-            settings.connect_timeout,
-            settings.idle_timeout,
-            settings.resolver,
-        ) as upstream:
-            upstream.sendall(forward)
+        # Remove hop-by-hop headers (RFC 7230)
+        hop_by_hop = {
+            "connection",
+            "proxy-connection",
+            "keep-alive",
+            "transfer-encoding",
+            "te",
+            "trailer",
+            "upgrade",
+            "proxy-authenticate",
+            "proxy-authorization",
+        }
+        for h in hop_by_hop:
+            headers.pop(h, None)
+
+        # If client sent "Connection: x,y", those named headers are hop-by-hop too
+        conn_hdr = req.headers.get("connection")
+        if conn_hdr:
+            for token in conn_hdr.split(","):
+                headers.pop(token.strip().lower(), None)
+
+        # --- IMPORTANT: chunked + Content-Length cannot coexist ---
+        # We removed "transfer-encoding" from forwarded headers because it's hop-by-hop.
+        # But if the request body we are sending is chunked bytes, we must also ensure
+        # we don't send Content-Length to the upstream.
+        te = req.headers.get("transfer-encoding")
+        if te and te.lower() == "chunked":
+            headers.pop("content-length", None)
+
+        headers["host"] = host if port == 80 else f"{host}:{port}"
+        headers["connection"] = "close"
+
+        policy_decision = check_host_policy(
+            host,
+            allow_domains=settings.allow_domains,
+            deny_domains=settings.deny_domains,
+            deny_private=settings.deny_private,
+        )
+        if not policy_decision.allowed:
+            action = "block"
+            send_http_error(client_sock, 403, f"Forbidden: {policy_decision.reason}")
+            return
+
+        engine = SegmentationEngine(settings.segmentation_rules, settings.segmentation_default)
+        ctx = RequestContext(
+            method=req.method,
+            scheme="http",
+            host=host,
+            port=port,
+            path=path,
+        )
+        decision = engine.decide(ctx)
+        policy = decision.policy
+        action = decision.action
+        matched = decision.matched_rule.host_glob if decision.matched_rule else "<default>"
+
+        logging.debug(
+            "HTTP forward %s:%d %s (rule=%s score=%d action=%s mode=%s strategy=%s rid=%s)",
+            host,
+            port,
+            path,
+            matched,
+            decision.score,
+            decision.action,
+            policy.mode,
+            policy.strategy,
+            request_id or "-",
+        )
+        if decision.explain:
+            logging.debug("HTTP forward decision: %s rid=%s", decision.explain, request_id or "-")
+
+        if decision.action == "block":
+            reason = decision.reason or "Blocked by segmentation rule"
+            send_http_error(client_sock, 403, f"Forbidden: {reason}")
+            return
+
+        try:
             if decision.action == "upstream":
-                _send_body_with_policy(upstream, body, policy)
+                if decision.upstream is None:
+                    send_http_error(client_sock, 502, "Upstream proxy not configured")
+                    return
+                upstream_host, upstream_port = decision.upstream
+                target = _build_absolute_url(host, port, path)
+                request_line = f"{req.method} {target} {req.version}\r\n"
+                upstream_addr = (upstream_host, upstream_port)
             else:
-                if body:
-                    upstream.sendall(body)
+                request_line = f"{req.method} {path} {req.version}\r\n"
+                upstream_addr = (host, port)
 
-            while True:
-                data = upstream.recv(4096)
-                if not data:
-                    break
-                client_sock.sendall(data)
+            header_blob = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
+            forward = (request_line + header_blob + "\r\n").encode("iso-8859-1")
 
-    except socket.gaierror:
-        send_http_error(client_sock, 502, "DNS resolution failed")
-    except TimeoutError:
-        send_http_error(client_sock, 504, "Upstream timeout")
-    except OSError:
-        send_http_error(client_sock, 502, "Upstream connection failed")
+            with open_upstream(
+                upstream_addr[0],
+                upstream_addr[1],
+                settings.connect_timeout,
+                settings.idle_timeout,
+                settings.resolver,
+            ) as upstream:
+                bytes_up = len(forward)
+                upstream.sendall(forward)
+                if decision.action == "upstream":
+                    _send_body_with_policy(upstream, body, policy)
+                    bytes_up += len(body)
+                else:
+                    if body:
+                        upstream.sendall(body)
+                        bytes_up += len(body)
+
+                bytes_down = 0
+                while True:
+                    data = upstream.recv(4096)
+                    if not data:
+                        break
+                    bytes_down += len(data)
+                    client_sock.sendall(data)
+
+        except socket.gaierror:
+            send_http_error(client_sock, 502, "DNS resolution failed")
+        except TimeoutError:
+            send_http_error(client_sock, 504, "Upstream timeout")
+        except OSError:
+            send_http_error(client_sock, 502, "Upstream connection failed")
+    finally:
+        if settings.access_log:
+            _emit_access_log(
+                request_id=request_id,
+                method=method,
+                host=host,
+                port=port,
+                scheme=scheme,
+                action=action,
+                policy=policy,
+                start_time=start_time,
+                bytes_up=bytes_up,
+                bytes_down=bytes_down,
+            )
 
 
 def handle_connect_tunnel(
     client_sock: socket.socket,
     target: str,
     settings: Settings,
+    *,
+    request_id: str | None = None,
 ) -> None:
+    start_time = time.monotonic()
+    clear_dns_trace()
+    host = "-"
+    port = 0
+    method = "CONNECT"
+    scheme = "https"
+    action = "direct"
+    policy = settings.segmentation_default
+
     try:
-        host, port = parse_connect_target(target)
-    except Exception:
-        send_http_error(client_sock, 400, "CONNECT target must be host:port")
-        return
-
-    decision = check_host_policy(
-        host,
-        allow_domains=settings.allow_domains,
-        deny_domains=settings.deny_domains,
-        deny_private=settings.deny_private,
-    )
-    if not decision.allowed:
-        send_http_error(client_sock, 403, f"Forbidden: {decision.reason}")
-        return
-
-    # Pick segmentation policy for this host
-    engine = SegmentationEngine(settings.segmentation_rules, settings.segmentation_default)
-    ctx = RequestContext(
-        method="CONNECT",
-        scheme="https",
-        host=host,
-        port=port,
-        path="",
-    )
-    decision = engine.decide(ctx)
-    policy = decision.policy
-    matched = decision.matched_rule.host_glob if decision.matched_rule else "<default>"
-
-    logging.debug(
-        "CONNECT tunnel %s:%d "
-        "(rule=%s score=%d action=%s mode=%s "
-        "strategy=%s chunk=%d delay_ms=%d)",
-        host,
-        port,
-        matched,
-        decision.score,
-        decision.action,
-        policy.mode,
-        policy.strategy,
-        policy.chunk_size,
-        policy.delay_ms,
-    )
-    if decision.explain:
-        logging.debug("CONNECT decision: %s", decision.explain)
-
-    if decision.action == "block":
-        reason = decision.reason or "Blocked by segmentation rule"
-        send_http_error(client_sock, 403, f"Forbidden: {reason}")
-        return
-
-    upstream_host = host
-    upstream_port = port
-    use_upstream_proxy = False
-
-    if decision.action == "upstream":
-        if decision.upstream is None:
-            send_http_error(client_sock, 502, "Upstream proxy not configured")
+        try:
+            host, port = parse_connect_target(target)
+        except Exception:
+            send_http_error(client_sock, 400, "CONNECT target must be host:port")
             return
-        upstream_host, upstream_port = decision.upstream
-        use_upstream_proxy = True
 
-    try:
-        upstream = open_upstream(
-            upstream_host,
-            upstream_port,
-            settings.connect_timeout,
-            settings.idle_timeout,
-            settings.resolver,
+        decision = check_host_policy(
+            host,
+            allow_domains=settings.allow_domains,
+            deny_domains=settings.deny_domains,
+            deny_private=settings.deny_private,
         )
-    except socket.gaierror:
-        send_http_error(client_sock, 502, "DNS resolution failed")
-        return
-    except TimeoutError:
-        send_http_error(client_sock, 504, "Upstream timeout")
-        return
-    except OSError:
-        send_http_error(client_sock, 502, "Upstream connection failed")
-        return
+        if not decision.allowed:
+            action = "block"
+            send_http_error(client_sock, 403, f"Forbidden: {decision.reason}")
+            return
 
-    if use_upstream_proxy:
-        ok = perform_upstream_connect(upstream, host, port, idle_timeout=settings.idle_timeout)
-        if not ok:
-            send_http_error(client_sock, 502, "Upstream proxy CONNECT failed")
+        # Pick segmentation policy for this host
+        engine = SegmentationEngine(settings.segmentation_rules, settings.segmentation_default)
+        ctx = RequestContext(
+            method="CONNECT",
+            scheme="https",
+            host=host,
+            port=port,
+            path="",
+        )
+        decision = engine.decide(ctx)
+        policy = decision.policy
+        action = decision.action
+        matched = decision.matched_rule.host_glob if decision.matched_rule else "<default>"
+
+        logging.debug(
+            "CONNECT tunnel %s:%d "
+            "(rule=%s score=%d action=%s mode=%s "
+            "strategy=%s chunk=%d delay_ms=%d rid=%s)",
+            host,
+            port,
+            matched,
+            decision.score,
+            decision.action,
+            policy.mode,
+            policy.strategy,
+            policy.chunk_size,
+            policy.delay_ms,
+            request_id or "-",
+        )
+        if decision.explain:
+            logging.debug("CONNECT decision: %s rid=%s", decision.explain, request_id or "-")
+
+        if decision.action == "block":
+            reason = decision.reason or "Blocked by segmentation rule"
+            send_http_error(client_sock, 403, f"Forbidden: {reason}")
+            return
+
+        upstream_host = host
+        upstream_port = port
+        use_upstream_proxy = False
+
+        if decision.action == "upstream":
+            if decision.upstream is None:
+                send_http_error(client_sock, 502, "Upstream proxy not configured")
+                return
+            upstream_host, upstream_port = decision.upstream
+            use_upstream_proxy = True
+
+        try:
+            upstream = open_upstream(
+                upstream_host,
+                upstream_port,
+                settings.connect_timeout,
+                settings.idle_timeout,
+                settings.resolver,
+            )
+        except socket.gaierror:
+            send_http_error(client_sock, 502, "DNS resolution failed")
+            return
+        except TimeoutError:
+            send_http_error(client_sock, 504, "Upstream timeout")
+            return
+        except OSError:
+            send_http_error(client_sock, 502, "Upstream connection failed")
+            return
+
+        if use_upstream_proxy:
+            ok = perform_upstream_connect(upstream, host, port, idle_timeout=settings.idle_timeout)
+            if not ok:
+                send_http_error(client_sock, 502, "Upstream proxy CONNECT failed")
+                try:
+                    upstream.close()
+                except Exception:
+                    pass
+                return
+
+        client_sock.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+
+        try:
+            relay_tunnel(
+                client_sock,
+                upstream,
+                idle_timeout=settings.idle_timeout,
+                policy=policy,
+            )
+        finally:
             try:
                 upstream.close()
             except Exception:
                 pass
-            return
-
-    client_sock.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
-
-    try:
-        relay_tunnel(
-            client_sock,
-            upstream,
-            idle_timeout=settings.idle_timeout,
-            policy=policy,
-        )
     finally:
-        try:
-            upstream.close()
-        except Exception:
-            pass
+        if settings.access_log:
+            _emit_access_log(
+                request_id=request_id,
+                method=method,
+                host=host,
+                port=port,
+                scheme=scheme,
+                action=action,
+                policy=policy,
+                start_time=start_time,
+                bytes_up=None,
+                bytes_down=None,
+            )
+
+
+def _emit_access_log(
+    *,
+    request_id: str | None,
+    method: str,
+    host: str,
+    port: int,
+    scheme: str,
+    action: str,
+    policy: SegmentationPolicy,
+    start_time: float,
+    bytes_up: int | None,
+    bytes_down: int | None,
+) -> None:
+    duration_ms = int((time.monotonic() - start_time) * 1000)
+    parts = [
+        "ACCESS",
+        f"rid={request_id or '-'}",
+        f"method={method}",
+        f"host={host}",
+        f"port={port}",
+        f"scheme={scheme}",
+        f"action={action}",
+        f"mode={policy.mode}",
+        f"strategy={policy.strategy}",
+        f"dur_ms={duration_ms}",
+    ]
+
+    trace = get_dns_trace()
+    if trace is not None:
+        parts.extend(
+            [
+                f"dns={trace.dns}",
+                f"cache={trace.cache}",
+                f"transport={trace.transport}",
+                f"fallback={trace.fallback}",
+            ]
+        )
+
+    if bytes_up is not None:
+        parts.append(f"bytes_up={bytes_up}")
+    if bytes_down is not None:
+        parts.append(f"bytes_down={bytes_down}")
+
+    logging.info(" ".join(parts))
 
 
 def _build_absolute_url(host: str, port: int, path: str) -> str:

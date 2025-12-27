@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import logging
+import secrets
 import socket
 
 from segmentedproxy.config import Settings
@@ -42,6 +43,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Use a specific DNS server (UDP/53) for queries.",
     )
     parser.add_argument("--log-level", default="INFO")
+    parser.add_argument(
+        "--access-log",
+        action="store_true",
+        help="Log one access line per request or CONNECT tunnel.",
+    )
 
     # Segmentation CLI (CONNECT)
     parser.add_argument("--segmentation", default="direct", choices=["direct", "segment_upstream"])
@@ -140,6 +146,7 @@ def make_settings(args: argparse.Namespace) -> Settings:
         dns_port=dns_port,
         dns_transport=dns_transport,
         resolver=resolver,
+        access_log=args.access_log,
         segmentation_default=default_policy,
         segmentation_rules=rules,
     )
@@ -321,6 +328,7 @@ def handle_client_factory(settings: Settings):
             return
 
         cid = next(conn_ids)
+        request_id = secrets.token_hex(4)
         logging.info("[C%05d] %s %s from %s", cid, request.method, request.target, client_addr)
 
         try:
@@ -330,9 +338,9 @@ def handle_client_factory(settings: Settings):
             return
 
         if request.method.upper() == "CONNECT":
-            handle_connect_tunnel(client_sock, request.target, settings)
+            handle_connect_tunnel(client_sock, request.target, settings, request_id=request_id)
         else:
-            handle_http_forward(client_sock, request, body, settings)
+            handle_http_forward(client_sock, request, body, settings, request_id=request_id)
 
     return handle_client
 

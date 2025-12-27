@@ -10,6 +10,9 @@ segproxy \
   --segment-rule "*.example.com=segment_upstream,scheme=https,method=CONNECT,strategy=random,min=256,max=1024,delay=5"
 ```
 
+## Access log
+Use `--access-log` to print one ACCESS line per request or CONNECT tunnel.
+
 ## Rules file
 You can load rules from a text file with one rule per line.
 Blank lines and lines starting with `#` are ignored.

@@ -18,6 +18,7 @@ class Settings:
     dns_port: int = 53
     dns_transport: str = "udp"
     resolver: Resolver = field(default_factory=SystemResolver)
+    access_log: bool = False
 
     def __post_init__(self) -> None:
         if self.dns_cache_size < 0:

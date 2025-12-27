@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import socket
 from collections.abc import Callable
 
@@ -40,6 +41,7 @@ def make_client_handler(settings: Settings) -> Callable[[socket.socket, tuple], 
                 send_http_error(client_sock, 400, str(e))
                 return
 
+            request_id = secrets.token_hex(4)
             logging.info(
                 "%s %s from %s",
                 req.method,
@@ -72,9 +74,9 @@ def make_client_handler(settings: Settings) -> Callable[[socket.socket, tuple], 
                     remaining -= len(chunk)
 
             if req.method.upper() == "CONNECT":
-                handle_connect_tunnel(client_sock, req.target, settings)
+                handle_connect_tunnel(client_sock, req.target, settings, request_id=request_id)
             else:
-                handle_http_forward(client_sock, req, body, settings)
+                handle_http_forward(client_sock, req, body, settings, request_id=request_id)
 
         except TimeoutError:
             logging.debug("Client timeout: %s", client_addr)
