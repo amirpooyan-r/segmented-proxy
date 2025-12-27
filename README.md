@@ -2,6 +2,12 @@
 
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://amirpooyan-r.github.io/segmented-proxy/)
 
+## Project Status / Support
+- Educational project (active)
+- Python 3.10+
+- Not production software
+- Issues welcome; best-effort support
+
 ## Releases
 You can find stable versions and release notes here:
 

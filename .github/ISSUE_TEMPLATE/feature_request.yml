@@ -1,0 +1,59 @@
+name: Feature request
+description: Suggest an improvement for SegmentedProxy
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What would you like SegmentedProxy to do?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happens today?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: If this is a gap in current behavior, show how to reproduce it.
+      placeholder: |
+        1. Run segproxy with ...
+        2. Configure browser ...
+        3. Visit ...
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste logs from `--log-level debug` if relevant.
+      render: shell
+    validations:
+      required: false
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      description: Example: Ubuntu 22.04, Windows 11, macOS 14
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: Example: 3.11.5
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: SegmentedProxy version
+      description: Example: 0.3.0
+    validations:
+      required: true

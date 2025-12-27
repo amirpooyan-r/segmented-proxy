@@ -1,0 +1,59 @@
+name: Bug report
+description: Report a problem with SegmentedProxy
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Simple steps so we can reproduce the issue.
+      placeholder: |
+        1. Run segproxy with ...
+        2. Configure browser ...
+        3. Visit ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste logs from `--log-level debug` if possible.
+      render: shell
+    validations:
+      required: false
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      description: Example: Ubuntu 22.04, Windows 11, macOS 14
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: Example: 3.11.5
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: SegmentedProxy version
+      description: Example: 0.3.0
+    validations:
+      required: true
