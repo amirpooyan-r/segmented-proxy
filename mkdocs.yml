@@ -10,6 +10,7 @@ theme:
 nav:
   - Home: index.md
   - Learning Path: LEARNING_PATH.md
+  - Project Goals: PROJECT_GOALS.md
   - How a Proxy Works: HOW_A_PROXY_WORKS.md
   - HTTP vs HTTPS: HTTP_VS_HTTPS.md
   - Segmentation: SEGMENTATION.md

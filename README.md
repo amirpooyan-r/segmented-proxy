@@ -14,6 +14,18 @@ It sits between your browser and the internet.
 It helps you see how rules and segmentation change traffic.
 It is not production software.
 
+## Project Goals
+SegmentedProxy is an **educational project** designed to help learners understand
+how HTTP/HTTPS proxies, CONNECT tunnels, routing rules, and traffic segmentation
+work in practice.
+
+It is **not production software** and is **not intended for censorship bypass,
+anonymity, or high-performance use**.
+
+For full details, see:
+https://amirpooyan-r.github.io/segmented-proxy/PROJECT_GOALS/
+
+
 ## Documentation Site
 Docs are available on GitHub Pages:
 https://amirpooyan-r.github.io/segmented-proxy/
