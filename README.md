@@ -2,6 +2,12 @@
 
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://amirpooyan-r.github.io/segmented-proxy/)
 
+## Releases
+You can find stable versions and release notes here:
+
+- Latest: https://github.com/amirpooyan-r/segmented-proxy/releases/latest
+- History: https://github.com/amirpooyan-r/segmented-proxy/releases
+
 ## Overview
 SegmentedProxy is a small HTTP/HTTPS proxy made for learning.
 It sits between your browser and the internet.
