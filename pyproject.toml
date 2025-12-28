@@ -1,6 +1,6 @@
 [project]
 name = "segmentedproxy"
-version = "0.4.0"
+version = "0.5.0"
 description = "A lightweight educational HTTPS proxy with optional segmentation strategies"
 authors = [{ name = "Amirpooyan Raeessi" }]
 license = { text = "GPL-3.0" }
