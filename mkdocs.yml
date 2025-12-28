@@ -7,6 +7,12 @@ docs_dir: docs
 theme:
   name: material
 
+markdown_extensions:
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+
 nav:
   - Home: index.md
   - Learning Path: LEARNING_PATH.md
@@ -22,6 +28,10 @@ nav:
   - Glossary: GLOSSARY.md
   - Troubleshooting: TROUBLESHOOTING.md
   - Commands: commands.md
+
+extra_javascript:
+  - https://unpkg.com/mermaid@10/dist/mermaid.min.js
+  - javascripts/mermaid-init.js
 
 extra:
   version: v0.5.0
