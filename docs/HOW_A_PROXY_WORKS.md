@@ -6,6 +6,18 @@ Browser -> Proxy -> Server
 The proxy sits in the middle.
 It can allow, block, or forward traffic.
 
+Sequence diagram:
+```mermaid
+sequenceDiagram
+  participant Client
+  participant SegmentedProxy
+  participant OriginServer
+  Client->>SegmentedProxy: Request
+  SegmentedProxy->>OriginServer: Forward request
+  OriginServer-->>SegmentedProxy: Response
+  SegmentedProxy-->>Client: Forward response
+```
+
 ## HTTP Forward Request Flow
 1. The browser sends a full URL to the proxy.
 2. The proxy checks rules and policy.
@@ -23,10 +35,29 @@ Browser --HTTP--> Proxy --HTTP--> Server
 3. The proxy replies "200 Connection established".
 4. The browser and server talk inside the tunnel.
 
+For HTTPS CONNECT, the proxy does not decrypt TLS; it only tunnels bytes.
+
 Diagram:
 ```
 Browser --CONNECT--> Proxy --TCP--> Server
 Browser <== TLS encrypted bytes ==> Server (through proxy)
+```
+
+## High-Level Proxy Loop
+```mermaid
+flowchart TD
+  A[Accept connection] --> B[Parse request]
+  B --> C{Choose route}
+  C -->|Direct| D{CONNECT?}
+  C -->|Upstream| D
+  C -->|Block| E[Block and respond]
+  D -->|Yes| F[Create tunnel]
+  D -->|No| G[Forward HTTP]
+  F --> H[Relay bytes both ways]
+  G --> I[Send response]
+  H --> J[Log and close]
+  I --> J[Log and close]
+  E --> J[Log and close]
 ```
 
 ## Using an Upstream Proxy
