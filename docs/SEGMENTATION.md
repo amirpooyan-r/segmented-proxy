@@ -1,13 +1,49 @@
 # Segmentation
 
-## Overview
-Segmentation in this project means splitting data into smaller chunks and optionally
-spacing them out with small delays. It is a teaching tool for understanding how
-proxies can shape timing and size without changing the content.
+## What Segmentation Means (Overview)
+Segmentation in this project means splitting data into smaller chunks.
+You can also space the chunks out with small delays.
+It is a teaching tool for understanding how proxies can shape timing and size
+without changing the content.
+It focuses on delivery behavior, not on the meaning of the data.
+
+### A Simple Mental Model
+Think of a water hose and a bucket.
+A standard proxy is like a normal hose.
+Water (data) flows through continuously, as fast as the source sends it.
+
+SegmentedProxy is like filling a bucket first.
+It catches some data in a buffer.
+It waits until the buffer reaches a chosen size.
+Then it sends that chunk forward.
+Sometimes it waits a short time before sending the next chunk.
+
+This means data does not flow in one smooth stream.
+It arrives in small, controlled pieces instead.
+
+Why do this in practice?
+
+- **Education:** to see how TCP behaves when data arrives in pieces.
+- **Testing:** to simulate slow, unstable, or jittery network conditions.
+- **Privacy awareness:** to understand how timing and size patterns can reveal information.
+
+### Why This Proxy Feels Different
+This focus on segmentation is what makes SegmentedProxy educationally different
+from a basic HTTPS proxy.
+A basic proxy mostly forwards bytes as quickly as it can.
+SegmentedProxy can also control *how* bytes move: how big each chunk is, and how
+much time passes between chunks.
+
+This is useful because it helps you:
+
+- learn how TCP and applications behave when data arrives in pieces
+- test software under slow, unstable, or jittery delivery
+- build privacy awareness about what timing and size patterns may reveal
 
 ## How SegmentedProxy Decides
 The proxy evaluates rules, chooses an action or route, and then applies a
 segmentation strategy if one is configured for that match.
+The decision process is shown here in a simple flow:
 
 ```mermaid
 flowchart TD
@@ -35,7 +71,8 @@ Key takeaways:
 ## HTTPS CONNECT and Where Segmentation Applies
 SegmentedProxy does not decrypt TLS. For HTTPS, it only sees the CONNECT request
 and then forwards encrypted bytes. Segmentation, if enabled, applies to the bytes
-it forwards, not to the decrypted content.
+it forwards, not to the decrypted content. It changes how encrypted bytes are
+grouped and timed, not what they contain.
 
 ```mermaid
 sequenceDiagram
@@ -53,7 +90,7 @@ sequenceDiagram
     Note over Proxy: No TLS decryption or inspection
 ```
 
-## What segmentation is / is not
+## What Segmentation Teaches and What It Is Not
 ### What it teaches
 Segmentation helps you observe:
 - Timing and size shaping
@@ -66,8 +103,9 @@ It is not:
 - A method for hiding traffic
 - A man-in-the-middle (MITM) tool
 
-## Configuration examples
+## Configuration Examples
 These examples match the rule syntax style used in `examples/rules.txt`.
+They show simple ways to enable segmentation for learning.
 
 ```text
 # Fixed segmentation with an upstream proxy
@@ -83,7 +121,7 @@ These examples match the rule syntax style used in `examples/rules.txt`.
 api.example.com=segment_upstream,scheme=http,method=POST,path_prefix=/v1/upload,strategy=random,min=128,max=512,delay=5
 ```
 
-## Try it yourself
+## Try It Yourself
 ### 1) Compare fixed vs random timing
 - Enable fixed segmentation for a host and capture logs.
 - Switch to random segmentation and compare request timing in logs.
