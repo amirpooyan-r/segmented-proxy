@@ -22,18 +22,22 @@ It cannot see the page or passwords.
 
 ## Diagram: What the Proxy Can See
 ```mermaid
-flowchart LR
-  subgraph HTTP[HTTP (plaintext)]
-    A[Browser] -->|Request (readable)| B[Proxy]
-    B -->|Forward/modify| C[Server]
-    C -->|Response (readable)| B
-    B -->|Readable| A
-  end
-  subgraph HTTPS[HTTPS via CONNECT]
-    D[Browser] -->|CONNECT host:port| E[Proxy]
-    E -->|TCP tunnel| F[Server]
-    D <-->|TLS encrypted bytes| F
-  end
+sequenceDiagram
+    participant Browser
+    participant Proxy
+    participant Server
+
+    Note over Browser,Server: HTTPS via CONNECT (no MITM)
+
+    Browser->>Proxy: CONNECT example.com:443
+    Proxy->>Server: Open TCP connection
+    Server-->>Proxy: TCP tunnel ready
+    Proxy-->>Browser: 200 Connection Established
+
+    Browser->>Server: TLS encrypted bytes
+    Server-->>Browser: TLS encrypted bytes
+
+    Note over Proxy: Proxy only forwards bytes\nCannot see URLs, headers, or content
 ```
 
 ## HTTPS Observation Limits
