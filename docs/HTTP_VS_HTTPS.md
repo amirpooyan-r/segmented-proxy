@@ -20,7 +20,7 @@ After CONNECT, the TLS handshake is inside the tunnel.
 The proxy only forwards bytes.
 It cannot see the page or passwords.
 
-## Diagram: What the Proxy Can See
+## Diagram: HTTPS CONNECT tunnel (what happens)
 ```mermaid
 sequenceDiagram
     participant Browser
@@ -38,6 +38,24 @@ sequenceDiagram
     Server-->>Browser: TLS encrypted bytes
 
     Note over Proxy: Proxy only forwards bytes\nCannot see URLs, headers, or content
+```
+
+## Diagram: HTTP vs HTTPS at a Proxy
+```mermaid
+flowchart LR
+  subgraph HTTP["HTTP (plaintext)"]
+    A[Browser] -->|"Request (readable)"| B[Proxy]
+    B -->|"Forward/modify"| C[Server]
+    C -->|"Response (readable)"| B
+    B -->|"Readable"| A
+  end
+
+  subgraph HTTPS["HTTPS via CONNECT"]
+    D[Browser] -->|"CONNECT host:port"| E[Proxy]
+    E -->|"TCP tunnel"| F[Server]
+    D -->|"TLS encrypted bytes"| F
+    F -->|"TLS encrypted bytes"| D
+  end
 ```
 
 ## HTTPS Observation Limits

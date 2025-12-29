@@ -46,18 +46,22 @@ Browser <== TLS encrypted bytes ==> Server (through proxy)
 ## High-Level Proxy Loop
 ```mermaid
 flowchart TD
-  A[Accept connection] --> B[Parse request]
-  B --> C{Choose route}
-  C -->|Direct| D{CONNECT?}
+  A[Client connects] --> B[Parse request]
+  B --> C{Match rules}
+
+  C -->|Direct| D{Segmentation}
   C -->|Upstream| D
   C -->|Block| E[Block and respond]
-  D -->|Yes| F[Create tunnel]
-  D -->|No| G[Forward HTTP]
-  F --> H[Relay bytes both ways]
-  G --> I[Send response]
-  H --> J[Log and close]
-  I --> J[Log and close]
-  E --> J[Log and close]
+
+  D -->|None| F[Relay bytes]
+  D -->|Fixed| G[Fixed-size chunks]
+  D -->|Random| H[Random-size chunks]
+
+  G --> F
+  H --> F
+
+  F --> I[Log and close]
+  E --> I
 ```
 
 ## Using an Upstream Proxy

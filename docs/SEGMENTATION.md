@@ -11,19 +11,26 @@ segmentation strategy if one is configured for that match.
 
 ```mermaid
 flowchart TD
-    A[Incoming request] --> B{Rule match?}
-    B -- No --> C[Default route]
-    B -- Yes --> D[Action/route chosen]
-    D --> E{Segmentation strategy?}
-    C --> E
-    E -- None --> F[Send as-is]
-    E -- Fixed --> G[Split into equal chunks]
-    E -- Random --> H[Split into random chunks]
+    A[Request arrives] --> B[Rule decides action + segment strategy]
+    B --> C{Action}
+    C -->|Direct| D{Segmentation?}
+    C -->|Upstream| D
+    C -->|Block| E[Block and respond]
+    D -->|None| F[Forward bytes as-is]
+    D -->|Fixed| G[Chunk into fixed sizes]
+    D -->|Random| H[Chunk into random sizes]
     G --> I[Optional delay between chunks]
     H --> I
-    I --> J[Send to destination]
-    F --> J
+    F --> J[Forward to destination]
+    I --> J
+    J --> K[No TLS decryption]
+    E --> K
 ```
+
+Key takeaways:
+- Rules choose both the action and the segmentation strategy.
+- Segmentation changes timing and chunking, not the content.
+- HTTPS stays encrypted end-to-end; the proxy does not decrypt TLS.
 
 ## HTTPS CONNECT and Where Segmentation Applies
 SegmentedProxy does not decrypt TLS. For HTTPS, it only sees the CONNECT request
