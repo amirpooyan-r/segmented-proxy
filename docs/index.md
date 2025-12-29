@@ -4,19 +4,6 @@ SegmentedProxy is an educational HTTP and HTTPS proxy.
 It helps you learn how proxies work in real traffic.
 It is not production software.
 
-## Test Diagram
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Proxy
-    participant Site
-    User->>Proxy: CONNECT example.com:443
-    Proxy->>Site: Open tunnel
-    Site-->>Proxy: Tunnel ready
-    Proxy-->>User: 200 Connection Established
-```
-
 ## What it teaches
 
 - HTTP and HTTPS basics
