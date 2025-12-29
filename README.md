@@ -2,6 +2,11 @@
 
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://amirpooyan-r.github.io/segmented-proxy/)
 
+## Start here
+Documentation site: https://amirpooyan-r.github.io/segmented-proxy/
+About This Project: https://amirpooyan-r.github.io/segmented-proxy/ABOUT_THIS_PROJECT/
+Learning Path: https://amirpooyan-r.github.io/segmented-proxy/LEARNING_PATH/
+
 ## Project Status / Support
 - Educational project (active)
 - Python 3.10+

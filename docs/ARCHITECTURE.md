@@ -1,90 +1,81 @@
-# Architecture Overview
+# Architecture
 
-This page gives a simple view of how SegmentedProxy works.
-It is a learning guide, not a full spec.
+## Overview
+This document explains the high-level architecture of SegmentedProxy.
+It shows the main parts and how data moves through them.
+Use it as a conceptual map before reading detailed topics.
+It sits between the quick guides and the deeper behavior notes.
 
-## HTTP and outbound paths
+## High-Level Components
+### Client
+The client is your browser or app.
+It sends requests and receives responses.
+It does not change how it speaks HTTP or HTTPS.
 
+### SegmentedProxy
+SegmentedProxy sits between the client and the destination.
+It accepts requests, applies rules, and forwards data.
+It can change timing and chunk size, but not content.
+
+### Rules engine
+The rules engine decides what to do with each request.
+It can allow, block, or forward through an upstream.
+It can also turn segmentation on or off for a match.
+
+### Upstream server or direct connection
+The proxy can connect directly to the destination.
+It can also forward through another upstream proxy.
+This choice is part of the rule decision.
+
+### DNS resolution
+When a hostname is used, a DNS lookup may happen.
+This is a small but important step in the flow.
+
+## Data Flow Overview
+The common path is Client → SegmentedProxy → Destination.
+The proxy may buffer data in small chunks before sending it on.
+Segmentation is applied during forwarding, after rules match.
+The focus is on timing and chunking, not on content changes.
+
+## HTTP vs HTTPS Flow
+### HTTP
+For HTTP, requests and responses are visible to the proxy.
+This helps the rules engine match on method, host, or path.
+Segmentation, if enabled, applies to the forwarded HTTP data.
+
+### HTTPS
+For HTTPS, the proxy only sees the CONNECT tunnel request.
+TLS is never decrypted by the proxy.
+After CONNECT, the proxy forwards encrypted bytes.
+Segmentation can still apply, but only to the encrypted stream.
+
+## Where Segmentation Lives
+Segmentation happens after rule matching.
+It happens while forwarding data, not before rules are chosen.
+It is independent from application-level meaning.
+It only changes timing and grouping of bytes.
+
+## What the Proxy Never Sees
+The proxy does not see TLS content.
+It does not see application semantics inside HTTPS.
+It does not see user credentials inside HTTPS.
+
+## Design Goals (Educational)
+Teach flow control concepts in a simple way.
+Allow safe, small experiments for learning.
+Avoid invasive inspection of user traffic.
+
+## Non-Goals
+This is not a production-hardened system.
+It is not a DPI bypass.
+It is not a traffic hiding tool.
+It is not a MITM proxy.
+
+## Simple Flow Diagram
 ```mermaid
 flowchart LR
-    client[Client<br/>browser/curl] -->|HTTP request| proxy[SegmentedProxy]
-    proxy -->|check| policy[Rules / Policy]
-    policy --> proxy
-    proxy -->|decide| seg[Segmentation rules]
-    seg --> proxy
-    proxy -->|resolve host| dns[DNS resolver<br/>system or custom + cache]
-    dns --> proxy
-    proxy -->|direct connect| origin[Origin Server]
-    proxy -->|to upstream<br/>segmentation can apply| upstream[Upstream Proxy]
-    upstream --> origin
+  C[Client] --> P[SegmentedProxy]
+  P --> D[Destination]
+  P --> U[Upstream Proxy]
+  P --> R[Rules Engine]
 ```
-
-Notes:
-- Rules/policy are checked before any outbound connection.
-- Segmentation is only applied on the client -> upstream direction.
-- For HTTP forward, segmentation is used only when the action is upstream.
-
-## HTTPS CONNECT tunnel
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant Proxy as SegmentedProxy
-    participant Upstream as Upstream Proxy
-    participant Origin as Origin Server
-
-    Client->>Proxy: CONNECT host:port
-    alt direct
-        Proxy->>Origin: TCP connect
-    else upstream
-        Proxy->>Upstream: TCP connect
-        Proxy->>Upstream: CONNECT host:port
-        Upstream->>Origin: TCP connect
-    end
-    Proxy-->>Client: 200 Connection established
-    Client<->>Origin: Encrypted bytes tunneled (no decryption)
-```
-
-## Components
-
-- CLI and settings: reads flags and builds the runtime config.
-- Server loop: accepts TCP clients and starts a handler.
-- Request handler: parses HTTP, routes CONNECT vs HTTP, and applies policy.
-- HTTP parser: small helpers for requests and error replies.
-- Policy checks: allow/deny rules for hosts and private IPs.
-- Segmentation engine: matches rules and picks direct, upstream, or block.
-- Tunnel relay: CONNECT data relay, optional segmentation on client -> upstream.
-- DNS resolver: system or custom DNS, optional cache and UDP/TCP fallback.
-- Net helpers: small socket read helpers.
-
-## Data flow summary for HTTP
-
-1. Client sends an HTTP request with a full URL.
-2. Proxy parses the request and checks policy and segmentation rules.
-3. Proxy resolves the host with DNS (cache first).
-4. Proxy connects direct to the origin or to an upstream proxy.
-5. Proxy forwards the request and returns the response.
-6. If action is upstream, the request body can be sent in segments.
-
-## Data flow summary for HTTPS CONNECT
-
-1. Client sends CONNECT host:port.
-2. Proxy checks policy and segmentation rules.
-3. Proxy connects to the target direct or via an upstream proxy.
-4. Proxy returns "200 Connection established".
-5. Proxy relays encrypted bytes without TLS decryption.
-6. If enabled, segmentation applies to client -> upstream only.
-
-## DNS flow summary
-
-- Cache hit: reuse the cached address until TTL expires.
-- Cache miss: resolve using system DNS or the custom DNS server.
-- Custom DNS uses UDP by default and can retry with TCP on failure or truncation.
-- If transport is set to TCP, it uses TCP only.
-
-## Logs and debug points
-
-- Use `--access-log` to print one access line per request or CONNECT tunnel.
-- Access logs include `rid=` (request_id), action, and policy mode/strategy.
-- Access logs also show DNS trace fields: dns, cache, transport, fallback.
-- DEBUG logs include rule decisions and DNS cache hit/miss details.

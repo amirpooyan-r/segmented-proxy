@@ -14,20 +14,29 @@ markdown_extensions:
           class: mermaid
 
 nav:
-  - Home: index.md
-  - Learning Path: LEARNING_PATH.md
-  - Project Goals: PROJECT_GOALS.md
-  - How a Proxy Works: HOW_A_PROXY_WORKS.md
-  - Architecture: ARCHITECTURE.md
-  - FAQ: FAQ.md
-  - HTTP vs HTTPS: HTTP_VS_HTTPS.md
-  - Segmentation: SEGMENTATION.md
-  - DNS: DNS_RESOLUTION.md
-  - Project Structure: PROJECT_STRUCTURE.md
-  - Experiments: EXPERIMENTS.md
-  - Glossary: GLOSSARY.md
-  - Troubleshooting: TROUBLESHOOTING.md
-  - Commands: commands.md
+  - Overview:
+    - Home: index.md
+    - About This Project: ABOUT_THIS_PROJECT.md
+    - Learning Path: LEARNING_PATH.md
+    - Project Goals: PROJECT_GOALS.md
+  - Core Concepts:
+    - How a Proxy Works: HOW_A_PROXY_WORKS.md
+    - HTTP vs HTTPS: HTTP_VS_HTTPS.md
+    - Segmentation: SEGMENTATION.md
+  - Hands-on:
+    - Labs: LABS.md
+    - Experiments: EXPERIMENTS.md
+    - Commands: commands.md
+  - Reference:
+    - Architecture: ARCHITECTURE.md
+    - DNS: DNS_RESOLUTION.md
+    - Project Structure: PROJECT_STRUCTURE.md
+    - Glossary: GLOSSARY.md
+  - Help:
+    - Troubleshooting: TROUBLESHOOTING.md
+    - FAQ: FAQ.md
+  - Advanced (Optional):
+    - TCP Behavior: ADVANCED_TCP_BEHAVIOR.md
 
 extra_javascript:
   - https://unpkg.com/mermaid@10/dist/mermaid.min.js

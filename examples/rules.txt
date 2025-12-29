@@ -1,13 +1,9 @@
 # Sample rules for SegmentedProxy.
-# Load this file with: segproxy --rules-file examples/rules.txt
-# Or pass rules by repeating --segment-rule "<rule>" (one flag per non-comment line).
+# Load this file with:
+#   segproxy --rules-file examples/rules.txt
+#
 # Lines starting with "#" are comments.
-# Bash: segproxy ... $(grep -vE '^\s*#|^\s*$' examples/rules.txt | sed 's/^/--segment-rule /' | tr '\n' ' ')
-# PowerShell:
-# $rules = Get-Content examples/rules.txt | Where-Object { $_ -notmatch '^\s*#' -and $_.Trim() -ne '' }
-# $args = @()
-# foreach ($r in $rules) { $args += @("--segment-rule", $r) }
-# segproxy @args ...
+# Blank lines are ignored.
 
 # Block a tracking host (applies to both http/https)
 tracker.example.com=direct,action=block,reason=tracking

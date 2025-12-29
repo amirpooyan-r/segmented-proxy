@@ -82,21 +82,6 @@ Steps to fix:
 - Pass each rule with a separate `--segment-rule` flag.
 - Keep comments starting with `#` and place rules on their own lines.
 
-## Segmentation does not seem to work
-What it looks like:
-- Traffic looks normal even with segmentation rules.
-- Only some requests seem affected.
-
-Possible reasons:
-- Segmentation only applies when a rule matches the request.
-- The `segment_upstream` mode only affects the client to upstream path.
-- HTTPS uses CONNECT tunnels, HTTP does not.
-
-Steps to fix:
-- Check that the host, scheme, method, and path match your rules.
-- Use a rule that clearly matches a single host to test.
-- Remember that HTTP and HTTPS follow different request paths.
-
 ## Logs are confusing
 What it looks like:
 - Log output is long and hard to follow.
